@@ -3,13 +3,13 @@ import type { EngineInterface as Api, Register } from 'claude-code'
 
 import type { Format, Note, Quiz, Verdict } from '../types'
 import { checkLink, parseFocus } from './focus'
+import { answerOf, flow } from './answer'
 import { appendNote, buildNote, toMarkdown } from './notes'
 import { isSecretPath, redact } from './redact'
 
 const PANE = 'session-quiz'
 const CONTEXT_CHARS = 6000
-// The question prompt asks for an answer this short; the box may hold less.
-const ANSWER_CHARS = 40
+const ANSWER_CHARS = 600
 
 const EMPTY: Quiz = {
   status: 'idle',
@@ -21,6 +21,7 @@ const EMPTY: Quiz = {
   explanation: '',
   answer: '',
   draft: '',
+  lines: [],
   feedback: '',
   lesson: '',
   error: '',
@@ -30,15 +31,13 @@ const EMPTY: Quiz = {
   definition: '',
 }
 
-const quiz = atom({ plugin: 'session-quiz', key: 'quiz' } as const, EMPTY, { shape: 'quiz-mvp-2' })
+const quiz = atom({ plugin: 'session-quiz', key: 'quiz' } as const, EMPTY, { shape: 'quiz-mvp-4' })
 const format = atom({ plugin: 'session-quiz', key: 'format' } as const, 'free', { shape: 'format-1' })
 const asked = atom({ plugin: 'session-quiz', key: 'asked' } as const, [], { shape: 'asked-1' })
 const showSettings = atom({ plugin: 'session-quiz', key: 'showSettings' } as const, false, { shape: 'show-settings-1' })
 const sessionTokens = atom({ plugin: 'session-quiz', key: 'sessionTokens' } as const, 0, { shape: 'session-tokens-1' })
 const petStep = atom({ plugin: 'session-quiz', key: 'petStep' } as const, 0, { shape: 'pet-step-1' })
 
-// A cat that walks back and forth along the bottom of the pane. It faces the
-// way it walks (tail behind it) and wags its tail every other step.
 const CAT_TOP = ' /\\_/\\ '
 const catBody = (right: boolean, wag: boolean) =>
   right ? `${wag ? '~' : '-'}( o.o )` : `( o.o )${wag ? '~' : '-'}`
@@ -50,18 +49,15 @@ function petAt(step: number, track: number): { x: number; right: boolean } {
   return p < track ? { x: p, right: true } : { x: 2 * track - p, right: false }
 }
 
-// A model call in flight in each busy state, and where a reload that dropped it settles.
 const BUSY = { thinking: 'idle', grading: 'asking', teaching: 'answered' } as const
 const isBusy = (status: Quiz['status']): status is keyof typeof BUSY => status in BUSY
 
-// How a good lecturer would review the session: retrieval practice, rotated
-// through Bloom's levels, asking for reasons and transfer rather than recall.
 const ASK_SYSTEM = `You are a professor who teaches software engineering well. Your student is a developer who just worked through the session below with a coding assistant. You write one review question that makes them retrieve and reason about the ideas behind that work, so they keep it.
 
 How you teach:
 - Build the question around one key concept behind what the developer is building: an idea from systems design, architecture or engineering practice that they should understand while they build, such as debounce, idempotency, a composite index, cache invalidation or a message queue. Ask what it means and why it matters in what they are building, in their own words.
 - Ask only about the big, central ideas of the session: the concepts a senior engineer would want the student to still know in a year. Skip small details, syntax, configuration, and trivia (file names, exact code, what the assistant said).
-- The question must be answerable from understanding alone, in a few words (under ${ANSWER_CHARS} characters), so ask exactly one thing, never two questions joined by "and". If an idea needs an essay, ask about one part of it.
+- The question must be answerable from understanding alone, in a sentence or a short paragraph (under ${ANSWER_CHARS} characters), so ask exactly one thing. If an idea needs an essay, ask about one part of it.
 - Ask for reasons: "why", "how", "what would happen if", "when would you not". A question answerable by recalling one word is too shallow.
 - Prefer transfer: set the idea in a fresh, concrete scenario different from the session, so the student must apply it, not repeat it.
 - Target the misconception a student is most likely to hold about this topic.
@@ -83,8 +79,6 @@ const CHOICE_RULES = `For multiple choice: four options; the right one is listed
 
 const SOURCE_RULE = `Optionally add "source": the one file the concept came from, copied exactly from a "tool ...: <path>" line in the session. Add ":<line>" only if the session itself shows that file with that line number. Leave "source" out if no file fits.`
 
-// A focus area only changes the angle, so "data science" still applies to a
-// day of frontend work.
 const FOCUS_RULE = `The student also wants to grow in these areas. Always ask about an idea from the session, never about a subject the session does not touch. If the session works on one of these areas directly, ask about that. Otherwise, if an idea from the session has a real, useful link to one of these areas, ask a question that carries the idea into that area: how the same idea shows up there, or what changes when it does. For example, a search box's debounce links to data science through batching a stream of events before a model sees them. Add "focus": that area, copied exactly from the list, and "bridge": a short phrase in that area's own words naming the setting the question uses (such as "batching events before a model"). The question itself must use that setting. If there is no honest link, ask as usual and leave "focus" and "bridge" out. Never force a link.`
 
 const TERM_RULE = `Also add "term": that key concept, named in 1 to 4 words as an engineer would name it (such as "debounce" or "event-driven architecture"), and "definition": what it means, in one plain sentence.`
@@ -115,7 +109,6 @@ async function digest($: Api): Promise<Digest> {
   const paths = new Set<string>()
   const said: string[] = []
   for (const m of rows.slice(-40)) {
-    // Redact before clipping, so a cut never leaves half a key behind.
     if (m.text.trim() !== '') lines.push(`${m.role}: ${clip(redact(m.text.trim()), 600)}`)
     said.push(m.text.split(cwd + '/').join(''))
     for (const t of m.toolUses) {
@@ -125,7 +118,6 @@ async function digest($: Api): Promise<Digest> {
       if (typeof file === 'string') paths.add(relative(file))
       const target = typeof file === 'string' ? relative(file) : (t.input.command ?? t.input.pattern ?? '')
       lines.push(`tool ${t.tool}: ${clip(redact(String(target)), 120)}`)
-      // Grep -n output and the like cite `path:line` too.
       if (typeof t.text === 'string') said.push(t.text.split(cwd + '/').join(''))
     }
   }
@@ -133,14 +125,11 @@ async function digest($: Api): Promise<Digest> {
   return { text: text.slice(-CONTEXT_CHARS), paths, said: said.join('\n') }
 }
 
-// The model may name a file it never saw; show only paths the session touched,
-// and a line number only when the session's own text cites it.
 function checkSource(given: unknown, { paths, said }: Digest): string {
   const [, path = '', line] = str(given).trim().match(/^(.+?)(?::(\d+))?$/) ?? []
   if (!paths.has(path)) return ''
   if (line === undefined) return path
   const cited = `${path}:${line}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  // Bounded, so `a.ts:17` is not verified by `a.ts:170` or `src/a.ts:17`.
   return new RegExp(`(^|[\\s\`'"(])${cited}(?!\\d)`, 'm').test(said) ? `${path}:${line}` : path
 }
 
@@ -152,7 +141,6 @@ function parseJson(text: string): Record<string, unknown> | undefined {
   }
 }
 
-// The person's local date, so a day ends at their midnight, not UTC's.
 const dayKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
@@ -163,14 +151,11 @@ const tokensToday = async ($: Api): Promise<number> => {
   return saved?.day === dayKey(new Date()) ? saved.tokens : 0
 }
 
-// Undefined when the call was refused or went unanswered, so the pane never
-// stays stuck on a call that will not finish.
 async function haiku($: Api, system: string, prompt: string, maxTokens: number): Promise<string | undefined> {
   try {
     const r = await $.model.complete({ model: 'haiku', system, prompt, maxTokens, effort: 'low', timeoutMs: 30000 })
     const n = r.usage.input_tokens + r.usage.output_tokens
     await update($, sessionTokens, t => t + n)
-    // Read fresh, so two sessions on one day both count.
     await $.store.set('tokensToday', { day: dayKey(new Date()), tokens: (await tokensToday($)) + n } satisfies Today)
     return r.isAnswered ? r.text.trim() : undefined
   } catch {
@@ -180,7 +165,6 @@ async function haiku($: Api, system: string, prompt: string, maxTokens: number):
 
 const notesDir = async ($: Api) => `${await $.session.cwd()}/learning-galore-notes`
 
-// A missing file starts a fresh list, and a refused write never breaks the quiz.
 async function saveNote($: Api, q: Quiz) {
   try {
     const dir = await notesDir($)
@@ -205,7 +189,6 @@ const setFormat = async ($: Api, fn: (f: Format) => Format) => $.store.set('form
 
 async function askQuestion($: Api) {
   if (isBusy((await read($, quiz)).status)) return
-  // Unlimited unless the person set a daily cap with /quiz limit.
   const limit = await $.store.get('dailyLimit')
   if (typeof limit === 'number' && (await tokensToday($)) >= limit) {
     await update($, quiz, (): Quiz => ({ ...EMPTY, status: 'error', error: `You reached today's limit of ${limit.toLocaleString('en-US')} tokens. Run /quiz limit off to remove it.` }))
@@ -238,7 +221,6 @@ async function askQuestion($: Api) {
   }
   const given = Array.isArray(data?.choices) ? data.choices.map(String).slice(0, 4) : []
   const isChoice = fmt === 'choice' && given.length >= 2
-  // Models put the right answer in the same slot too often; shuffle here.
   const order = given.map((_, i) => i).sort(() => Math.random() - 0.5)
   await update($, asked, list => [...list, question].slice(-30))
   await update($, quiz, (q): Quiz => ({
@@ -254,7 +236,6 @@ async function askQuestion($: Api) {
     term: str(data?.term).trim(),
     definition: str(data?.definition).trim(),
   }))
-  // Takes the keyboard only over an empty prompt, so it never interrupts typing.
   void openPane($, true)
 }
 
@@ -292,7 +273,6 @@ async function submitChoice($: Api) {
       feedback: `${isRight ? 'Solid.' : `Not yet. The answer is: ${/[.!?]$/.test(right) ? right : `${right}.`}`} ${cur.explanation}`.trim(),
     }
   })
-  // A repeat press finds nothing to answer, so it never saves twice.
   if (changed) await saveNote($, done)
 }
 
@@ -320,15 +300,12 @@ export const register: Register = on => {
     })
     const saved = await $.store.get('format')
     if (saved === 'free' || saved === 'choice') await update($, format, () => saved)
-    // A reload drops any model call in flight; state survives it, so settle
-    // whatever that call left waiting.
     await update($, quiz, (q): Quiz => (isBusy(q.status) ? { ...q, status: BUSY[q.status] } : q))
     $.clock.every(450, () => void update($, petStep, n => n + 1))
     void openPane($)
     return next(e)
   })
 
-  // Claude starts working: that's the idle window, so ask a question then.
   on('turn.start', async ($, e, next) => {
     const { status } = await read($, quiz)
     if (e.agentId === undefined && status !== 'asking' && !isBusy(status)) {
@@ -376,22 +353,17 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
-    // Mobile draws no text fields.
     const Input = 'Input' in els ? els.Input : undefined
     const q: Quiz = await read($, quiz)
     const fmt: Format = await read($, format)
     const isSettings: boolean = await read($, showSettings)
     const n = (x: number) => x.toLocaleString('en-US')
-    // While a model call runs the pane holds no control, so the Enter that
-    // submitted an answer has nothing to land on.
     const busy = isBusy(q.status)
     const asking = q.status === 'asking'
     const typing = asking && q.format === 'free' && Input !== undefined
     const width = Math.max(0, e.props.bodyColumns - 4)
     const rule = <Text dimColor>{'─'.repeat(width)}</Text>
-    // The field never wraps, so an answer is held to what one line of the box
-    // shows: the pane width less the border, padding and the hint.
-    const room = Math.max(10, Math.min(ANSWER_CHARS, width - 8))
+    const room = Math.max(10, width - 8)
     const step: number = await read($, petStep)
     const pet = petAt(step, width - CAT_WIDTH - 1)
 
@@ -432,20 +404,27 @@ export const register: Register = on => {
             {typing && Input !== undefined && (
               <Box marginTop={1} flexDirection="column">
                 <Text dimColor>Your answer</Text>
-                <Box borderStyle="round" borderColor="claude" paddingX={1}>
+                <Box borderStyle="round" borderColor="claude" paddingX={1} flexDirection="column">
+                  {q.lines.map((line, i) => (
+                    <Text key={`line-${i}`}>{line}</Text>
+                  ))}
                   <Input
-                    // A new key per question gives each one an empty field.
                     key={`answer-${q.question}`}
                     placeholder="Type your answer"
                     rows={1}
                     autoFocus
                     submitLabel=""
                     value={q.draft}
-                    onInput={(value: string) => void update($, quiz, (cur): Quiz => ({ ...cur, draft: value.replace(/\n/g, ' ').slice(0, room) }))}
-                    onSubmit={(value: string) => void gradeFree($, value.slice(0, room))}
+                    onInput={(value: string) =>
+                      void update($, quiz, (cur): Quiz => {
+                        const left = Math.max(0, ANSWER_CHARS - answerOf(cur, '').length)
+                        return { ...cur, ...flow(cur.lines, value.slice(0, left), room) }
+                      })
+                    }
+                    onSubmit={(value: string) => void gradeFree($, answerOf(q, value))}
                   />
                 </Box>
-                {q.draft.length >= room && <Text dimColor>The box is full. Keep it short.</Text>}
+                {answerOf(q).length >= ANSWER_CHARS && <Text dimColor>That is as long as an answer can be.</Text>}
               </Box>
             )}
             {(q.status === 'answered' || q.status === 'teaching' || q.status === 'taught') && (
@@ -484,7 +463,7 @@ export const register: Register = on => {
               </Button>
             )}
             {typing && (
-              <Button key="send" variant="primary" onPress={() => void gradeFree($, q.draft)}>
+              <Button key="send" variant="primary" onPress={() => void gradeFree($, answerOf(q))}>
                 Submit
               </Button>
             )}
