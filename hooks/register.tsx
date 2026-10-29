@@ -23,11 +23,12 @@ const EMPTY: Quiz = {
   draft: '',
   feedback: '',
   error: '',
+  source: '',
 }
 const DEFAULTS: QuizSettings = { format: 'free', budget: 20000, maxQuestions: 10 }
 
 const quiz = atom({ plugin: 'session-quiz', key: 'quiz' } as const, EMPTY, {
-  shape: 'quiz-3',
+  shape: 'quiz-4',
 })
 const usage = atom(
   { plugin: 'session-quiz', key: 'usage' } as const,
@@ -70,6 +71,9 @@ const MOVES = [
 
 const CHOICE_RULES = `For multiple choice: four options; the right one is listed first (it is shuffled later). Each wrong option is a misconception a real student holds, plausible to someone who half understands. All four have similar length, detail, and grammar, so length or tone never gives the answer away. No "all of the above" or "none of the above". The explanation says why the right one is right and what the most tempting wrong one gets wrong, in one or two sentences.`
 
+// Asked in the same call as the question, so a source costs no extra request.
+const SOURCE_RULE = `Optionally add "source": the one file the concept came from, copied exactly from a "tool ...: <path>" line in the session. Add ":<line>" only if the session itself shows that file with that line number. Leave "source" out if no file fits.`
+
 const GRADE_SYSTEM = `You are a kind, exact professor giving feedback on a student's short answer to a review question.
 Open with one verdict word: "Solid.", "Partly." or "Not yet."
 Then, in at most two short sentences: name what they got right, and name the specific gap or misconception (not a vague "add more detail").
@@ -78,18 +82,41 @@ At most 60 words in all. Plain text, no headings, no lists.`
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s)
 
-async function digest($: Api): Promise<string> {
+type Digest = { text: string; paths: Set<string>; said: string }
+
+async function digest($: Api): Promise<Digest> {
   const rows = await $.session.messages()
+  const cwd = await $.session.cwd()
+  const relative = (p: string) => (p.startsWith(cwd + '/') ? p.slice(cwd.length + 1) : p)
   const lines: string[] = []
+  const paths = new Set<string>()
+  const said: string[] = []
   for (const m of rows.slice(-40)) {
     if (m.text.trim() !== '') lines.push(`${m.role}: ${clip(m.text.trim(), 600)}`)
+    said.push(m.text.split(cwd + '/').join(''))
     for (const t of m.toolUses) {
-      const target = t.input.file_path ?? t.input.command ?? t.input.pattern ?? ''
+      const file = t.input.file_path ?? t.input.notebook_path
+      if (typeof file === 'string') paths.add(relative(file))
+      const target = typeof file === 'string' ? relative(file) : (t.input.command ?? t.input.pattern ?? '')
       lines.push(`tool ${t.tool}: ${clip(String(target), 120)}`)
+      // Grep -n output and the like cite `path:line` too.
+      if (typeof t.text === 'string') said.push(t.text.split(cwd + '/').join(''))
     }
   }
   const text = lines.join('\n')
-  return text.length > CONTEXT_CHARS ? text.slice(-CONTEXT_CHARS) : text
+  return { text: text.length > CONTEXT_CHARS ? text.slice(-CONTEXT_CHARS) : text, paths, said: said.join('\n') }
+}
+
+// The model may name a file it never saw; show only paths the session touched,
+// and a line number only when the session's own text cites it.
+function checkSource(given: unknown, { paths, said }: Digest): string {
+  if (typeof given !== 'string') return ''
+  const [, path = '', line] = given.trim().match(/^(.+?)(?::(\d+))?$/) ?? []
+  if (!paths.has(path)) return ''
+  if (line === undefined) return path
+  const cited = `${path}:${line}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // Bounded, so `a.ts:17` is not verified by `a.ts:170` or `src/a.ts:17`.
+  return new RegExp(`(^|[\\s\`'"(])${cited}(?!\\d)`, 'm').test(said) ? `${path}:${line}` : path
 }
 
 function parseJson(text: string): Record<string, unknown> | undefined {
@@ -141,7 +168,8 @@ async function askQuestion($: Api) {
     await update($, quiz, (): Quiz => ({ ...EMPTY, status: 'error', error: `${stop} Raise it with /quiz max or /quiz budget.` }))
     return
   }
-  const context = await digest($)
+  const session = await digest($)
+  const context = session.text
   if (context.length < 200) {
     await update($, quiz, (): Quiz => ({ ...EMPTY, status: 'error', error: 'Not enough session to ask about yet. A question comes once Claude has replied.' }))
     return
@@ -153,8 +181,8 @@ async function askQuestion($: Api) {
   const move = MOVES[previous.length % MOVES.length]
   const shape =
     format === 'choice'
-      ? `${CHOICE_RULES}\nReply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "..."}`
-      : 'Reply as {"question": "..."}'
+      ? `${CHOICE_RULES}\n${SOURCE_RULE}\nReply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "..."}`
+      : `${SOURCE_RULE}\nReply as {"question": "...", "source": "..."}`
   const prompt = `Recent session:\n<session>\n${context}\n</session>\n\nAlready asked (pick a different concept or angle):\n${previous.slice(-10).join('\n') || '(none)'}\n\nTeaching move for this question: ${move}\n\n${shape}`
 
   const r = await complete($, {
@@ -187,6 +215,7 @@ async function askQuestion($: Api) {
     choices: isChoice ? choices : [],
     correct: isChoice ? order.indexOf(0) : -1,
     explanation: typeof data?.explanation === 'string' ? data.explanation : '',
+    source: checkSource(data?.source, session),
   }))
   $.ui.status('A quiz question is waiting')
   // Takes the keyboard only over an empty prompt, so it never interrupts typing.
@@ -361,6 +390,7 @@ export const register: Register = on => {
 
     return frame(
       <Text bold>{q.question}</Text>,
+      q.source !== '' && <Text dimColor>From: {q.source}</Text>,
       q.status === 'asking' && q.format === 'choice' && (
         <Box flexDirection="column" marginTop={1}>
           {q.choices.map((c, i) => (

@@ -12,6 +12,7 @@ export type Quiz = {
   draft: string
   feedback: string
   error: string
+  source: string
 }
 
 export type QuizUsage = { tokens: number; questions: number }

@@ -39,7 +39,7 @@ Teaching move for this question: {one move from the list below}
 {the format rules below}
 ```
 
-The session text holds each message's text, cut to 600 characters, and one line per tool call, such as `tool Edit: src/search.ts`.
+The session text holds each message's text, cut to 600 characters, and one line per tool call, such as `tool Edit: src/search.ts`. File paths are shown relative to the session's folder.
 
 **Teaching moves** (`MOVES`). The plugin uses them in turn, one per question, so the questions vary:
 
@@ -50,18 +50,26 @@ The session text holds each message's text, cut to 600 characters, and one line 
 5. Misconception: state a plausible but wrong belief about the idea and ask what is wrong with it.
 6. Teach it: ask the student to explain the idea to a junior developer in two sentences.
 
-**Format rules.** For free text:
+**Format rules.** Both formats start with the source rule (`SOURCE_RULE`):
 
 ```text
-Reply as {"question": "..."}
+Optionally add "source": the one file the concept came from, copied exactly from a "tool ...: <path>" line in the session. Add ":<line>" only if the session itself shows that file with that line number. Leave "source" out if no file fits.
+```
+
+For free text:
+
+```text
+Reply as {"question": "...", "source": "..."}
 ```
 
 For multiple choice (`CHOICE_RULES`):
 
 ```text
 For multiple choice: four options; the right one is listed first (it is shuffled later). Each wrong option is a misconception a real student holds, plausible to someone who half understands. All four have similar length, detail, and grammar, so length or tone never gives the answer away. No "all of the above" or "none of the above". The explanation says why the right one is right and what the most tempting wrong one gets wrong, in one or two sentences.
-Reply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "..."}
+Reply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "..."}
 ```
+
+The plugin checks the source before showing it. It keeps the path only if a tool call in the session used that file, and keeps a line number only if the session's text or tool output contains that exact `path:line`. Otherwise it shows the path alone, or nothing.
 
 The plugin shuffles the choices, because models put the right answer in the same place too often. It checks multiple-choice answers itself, with no second model call.
 
