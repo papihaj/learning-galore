@@ -333,7 +333,7 @@ async function submitChoice($: Api) {
       ...cur,
       status: 'answered',
       answer: cur.choices[index] ?? '',
-      feedback: `${isRight ? 'Solid.' : `Not yet. The answer is: ${right}`} ${cur.explanation}`.trim(),
+      feedback: `${isRight ? 'Solid.' : `Not yet. The answer is: ${/[.!?]$/.test(right) ? right : `${right}.`}`} ${cur.explanation}`.trim(),
     }
   })
   // Unset when the press found no question to answer, so a repeat press never counts twice.
