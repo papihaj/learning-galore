@@ -14,6 +14,8 @@ export type Quiz = {
   lesson: string
   error: string
   source: string
+  // The day a review item was first missed; empty for a new question.
+  reviewFrom: string
 }
 
 export type QuizUsage = { tokens: number; questions: number }
@@ -34,7 +36,7 @@ export type QuizStats = Record<Verdict, number> & {
   lastDay: string
 }
 
-// One answered question, kept in $.store for /quiz log and /quiz anki.
+// One answered question, kept on disk in ~/learning/session-quiz/answers.json.
 // `day` is the local date (YYYY-MM-DD) it was answered. `choices` and `right`
 // are set for multiple choice only, `source` only when the question named one.
 export type LogRecord = {
@@ -47,6 +49,20 @@ export type LogRecord = {
   source?: string
   choices?: string[]
   right?: string
+}
+
+// A missed question kept in $.store for spaced review. `choices` lists the
+// right one first, as the model wrote it; the pane shuffles them each time.
+// `interval` is the days until `due` (YYYY-MM-DD), 0 for a question never missed.
+export type ReviewItem = {
+  question: string
+  format: Format
+  choices: string[]
+  explanation: string
+  source: string
+  added: string
+  interval: number
+  due: string
 }
 
 declare module 'claude-code' {

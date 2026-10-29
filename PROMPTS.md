@@ -132,6 +132,7 @@ Longest reply: 350 tokens.
 - **Elaborative questions.** "Why" and "how" questions make you connect a fact to what you already know.
 - **Transfer.** Using an idea in a new setting shows you understand it, not just that you remember the session.
 - **Bloom's levels.** The teaching moves go from explaining, to predicting and applying, to comparing and judging.
+- **Spaced review.** A missed question comes back after 1 day, then 3, 7, and 21 days as you get it right. Recall after a gap, just as the idea starts to fade, makes it last longer than asking again right away. A review question is the saved question itself, so it needs no prompt.
 - **Spreading practice across topics.** The "already asked" list pushes each question to a different concept.
 - **Misconceptions as wrong choices.** Wrong choices come from real misunderstandings, so a wrong pick shows what to fix.
 - **Specific feedback.** The grade names the exact gap and ends with the key idea.

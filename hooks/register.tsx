@@ -1,9 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Api, Register, RenderChildren } from 'claude-code'
 
-import type { Format, LogRecord, Quiz, QuizSettings, QuizStats, QuizUsage, TokenLog, Verdict } from '../types'
+import type { Format, LogRecord, Quiz, QuizSettings, QuizStats, QuizUsage, ReviewItem, TokenLog, Verdict } from '../types'
 import { appendRecord, buildRecord, toAnki, toMarkdown } from './log'
 import { isSecretPath, redact } from './redact'
+import { addDays, dayKey, dueItems, pickDue, schedule, upsert } from './review'
 
 const PANE = 'session-quiz'
 const MODEL = 'haiku'
@@ -28,12 +29,13 @@ const EMPTY: Quiz = {
   lesson: '',
   error: '',
   source: '',
+  reviewFrom: '',
 }
 const DEFAULTS: QuizSettings = { format: 'free' }
 const NO_STATS: QuizStats = { answered: 0, solid: 0, partly: 0, notYet: 0, streak: 0, best: 0, lastDay: '' }
 
 const quiz = atom({ plugin: 'session-quiz', key: 'quiz' } as const, EMPTY, {
-  shape: 'quiz-5',
+  shape: 'quiz-6',
 })
 const usage = atom(
   { plugin: 'session-quiz', key: 'usage' } as const,
@@ -186,9 +188,6 @@ async function spend($: Api, r: { input_tokens: number; output_tokens: number })
   await update($, tokenLog, () => next)
 }
 
-// Local date, so a streak day ends at the person's midnight, not UTC's.
-const dayKey = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const yesterday = () => {
   const d = new Date()
   return dayKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1))
@@ -232,6 +231,14 @@ async function learningDir($: Api): Promise<string> {
 }
 
 async function logAnswer($: Api, q: Quiz, verdict: Verdict | undefined) {
+  try {
+    await writeLog($, q, verdict)
+  } catch {
+    // A refused read or write must never break the quiz itself.
+  }
+}
+
+async function writeLog($: Api, q: Quiz, verdict: Verdict | undefined) {
   const dir = await learningDir($)
   const data = `${dir}/session-quiz/answers.json`
   let log: LogRecord[] = []
@@ -248,13 +255,9 @@ async function logAnswer($: Api, q: Quiz, verdict: Verdict | undefined) {
     await $.store.delete('log')
   }
   log = appendRecord(log, buildRecord(q, verdict, dayKey(new Date())))
-  try {
-    await $.fs.write(data, JSON.stringify(log))
-    await $.fs.write(`${dir}/session-quiz/review.md`, toMarkdown(log))
-    await $.fs.write(`${dir}/anki/session-quiz.tsv`, toAnki(log))
-  } catch {
-    // A refused write must never break the quiz itself.
-  }
+  await $.fs.write(data, JSON.stringify(log))
+  await $.fs.write(`${dir}/session-quiz/review.md`, toMarkdown(log))
+  await $.fs.write(`${dir}/anki/session-quiz.tsv`, toAnki(log))
 }
 
 function statsSummary(t: QuizStats): string {
@@ -272,6 +275,7 @@ const openPane = ($: Api) => $.ui.open({ id: PANE, title: 'Quiz' })
 async function askQuestion($: Api) {
   const current: Quiz = await read($, quiz)
   if (current.status === 'thinking' || current.status === 'grading' || current.status === 'teaching') return
+  if (await askReview($)) return
   const session = await digest($)
   const context = session.text
   if (context.length < 200) {
@@ -327,6 +331,75 @@ async function askQuestion($: Api) {
   void $.ui.open({ id: PANE, title: 'Quiz', focus: true })
 }
 
+// Read from the session's clock, so a test can move the day forward.
+const reviewDay = async ($: Api) => dayKey(new Date(await $.clock.now()))
+const loadQueue = async ($: Api) => ((await $.store.get('review')) as ReviewItem[] | undefined) ?? []
+
+// A due review item needs no model call to ask; free text is still graded.
+// Answers true when it asked one.
+async function askReview($: Api): Promise<boolean> {
+  const item = pickDue(await loadQueue($), await reviewDay($))
+  if (item === undefined) return false
+  const isChoice = item.format === 'choice' && item.choices.length >= 2
+  const order = item.choices.map((_, i) => i).sort(() => Math.random() - 0.5)
+  await update($, asked, list => [...list, item.question].slice(-30))
+  await update($, usage, u => ({ ...u, questions: u.questions + 1 }))
+  await update($, quiz, (): Quiz => ({
+    ...EMPTY,
+    status: 'asking',
+    format: isChoice ? 'choice' : 'free',
+    question: item.question,
+    choices: isChoice ? order.map(i => item.choices[i] ?? '') : [],
+    correct: isChoice ? order.indexOf(0) : -1,
+    explanation: item.explanation,
+    source: item.source,
+    reviewFrom: item.added,
+  }))
+  $.ui.status('A quiz review question is waiting')
+  void $.ui.open({ id: PANE, title: 'Quiz', focus: true })
+  return true
+}
+
+// Reads the store fresh, like recordAnswer, so two sessions do not drop each other's items.
+async function recordReview($: Api, q: Quiz, verdict: Verdict) {
+  const queue = await loadQueue($)
+  const today = await reviewDay($)
+  // The right choice goes first, as the model wrote it, so a later ask can shuffle again.
+  const right = q.choices[q.correct]
+  const choices = right === undefined ? [] : [right, ...q.choices.filter((_, i) => i !== q.correct)]
+  const fresh: ReviewItem = {
+    question: q.question,
+    format: q.format,
+    choices,
+    explanation: q.explanation,
+    source: q.source,
+    added: today,
+    interval: 0,
+    due: today,
+  }
+  const saved = queue.find(r => r.question === q.question)
+  const next = schedule(saved ?? fresh, verdict, today)
+  // A new question answered well leaves nothing to save.
+  if (saved === undefined && next === undefined) return
+  await $.store.set('review', upsert(queue, q.question, next))
+}
+
+// A skipped review item comes back tomorrow, not on the very next question.
+async function skip($: Api) {
+  const q: Quiz = await read($, quiz)
+  await update($, quiz, (cur): Quiz => ({ ...cur, status: 'idle' }))
+  if (q.reviewFrom === '') return
+  const queue = await loadQueue($)
+  const item = queue.find(r => r.question === q.question)
+  if (item !== undefined) await $.store.set('review', upsert(queue, q.question, { ...item, due: addDays(await reviewDay($), 1) }))
+}
+
+function reviewSummary(queue: ReviewItem[], today: string): string {
+  const due = dueItems(queue, today).length
+  const next = queue.filter(r => r.due > today).map(r => r.due).sort()[0]
+  return `${due} review ${due === 1 ? 'question' : 'questions'} due, ${queue.length} queued.${due === 0 && next !== undefined ? ` Next due ${next}.` : ''}`
+}
+
 async function gradeFree($: Api, answer: string) {
   const q: Quiz = await read($, quiz)
   if (q.status !== 'asking' || answer.trim() === '') return
@@ -348,6 +421,7 @@ async function gradeFree($: Api, answer: string) {
   // An ungraded answer still counts toward the streak, with no verdict.
   const verdict = r.isAnswered ? verdictOf(r.text) : undefined
   await recordAnswer($, verdict)
+  if (verdict !== undefined) await recordReview($, await read($, quiz), verdict)
   await logAnswer($, await read($, quiz), verdict)
   $.ui.status(undefined)
 }
@@ -373,6 +447,7 @@ async function submitChoice($: Api) {
   // Unset when the press found no question to answer, so a repeat press never counts twice.
   if (verdict === undefined) return
   await recordAnswer($, verdict)
+  await recordReview($, done, verdict)
   await logAnswer($, done, verdict)
   $.ui.status(undefined)
 }
@@ -408,7 +483,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'quiz',
-      description: 'Open the Quiz pane. Args: now | settings | stats | log | free | choice',
+      description: 'Open the Quiz pane. Args: now | review | settings | stats | log | free | choice',
     })
     const saved = await $.store.get('settings')
     if (saved !== undefined) await update($, settings, () => ({ ...DEFAULTS, ...(saved as Partial<QuizSettings>) }))
@@ -467,6 +542,15 @@ export const register: Register = on => {
     if (word === 'log') {
       const dir = await learningDir($)
       return { text: `Your review is in ${dir}/session-quiz/review.md. Anki cards are in ${dir}/anki/session-quiz.tsv; import that file in Anki.` }
+    }
+    if (word === 'review') {
+      const queue = await loadQueue($)
+      const today = await reviewDay($)
+      const q: Quiz = await read($, quiz)
+      const isBusy = q.status === 'thinking' || q.status === 'grading' || q.status === 'teaching'
+      if (isBusy || pickDue(queue, today) === undefined) return { text: reviewSummary(queue, today) }
+      void askQuestion($)
+      return { text: `${reviewSummary(queue, today)} Asking the most overdue.` }
     }
     if (word === 'now') {
       void askQuestion($)
@@ -584,6 +668,7 @@ export const register: Register = on => {
     return frame(
       <Text bold>{q.question}</Text>,
       q.source !== '' && <Text dimColor>From: {q.source}</Text>,
+      q.reviewFrom !== '' && <Text dimColor>Review from {q.reviewFrom}</Text>,
       q.status === 'asking' && q.format === 'choice' && (
         <Box flexDirection="column" marginTop={1}>
           {q.choices.map((c, i) => (
@@ -651,7 +736,7 @@ export const register: Register = on => {
           </Button>
         )}
         {q.status === 'asking' && (
-          <Button key="skip" hotkey="s" onPress={() => void update($, quiz, (cur): Quiz => ({ ...cur, status: 'idle' }))}>
+          <Button key="skip" hotkey="s" onPress={() => void skip($)}>
             Skip <Text dimColor>s</Text>
           </Button>
         )}

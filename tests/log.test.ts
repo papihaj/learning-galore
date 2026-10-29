@@ -17,6 +17,7 @@ const QUIZ: Quiz = {
   lesson: '',
   error: '',
   source: '',
+  reviewFrom: '',
 }
 
 const free = (over: Partial<LogRecord> = {}): LogRecord => ({

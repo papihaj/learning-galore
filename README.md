@@ -51,7 +51,17 @@ In the desktop app, click **+** next to the prompt box, then **Plugins**, **Add 
 
 Press **s** to skip a question, **f** to switch between free text and multiple choice, and **g** to open Settings.
 
-The first prompt of a session gives no question, because there is nothing to ask about yet.
+The first prompt of a session gives no new question, because there is nothing to ask about yet. A review question can still come then.
+
+### Review of missed questions
+
+A question you miss comes back later, because recalling an idea after a gap makes it last. When you miss one, the plugin saves it in a review queue that is kept across sessions. A multiple-choice question keeps its choices and explanation.
+
+A saved question is due 1 day after the miss. Each time you get it right, the gap grows to 3 days, then 7, then 21. Getting it right at 21 days takes it out of the queue. Missing it again sets the gap back to 1 day.
+
+When a question is due, the plugin asks it in place of a new one, with a dim `Review from 2026-10-20` line that gives the day you first missed it. It asks the most overdue question first. Making a review question needs no model call. A free-text answer is still graded by Haiku. If you skip a review question, it comes back the next day.
+
+The queue holds at most 50 questions. When it is full, the questions due last are dropped first.
 
 ### Streaks and stats
 
@@ -92,18 +102,19 @@ The review log stays on your computer, in the plugin's store under your Claude C
 | --- | --- |
 | `/quiz` | Open the pane. |
 | `/quiz settings` | Open Settings in the pane: format, tokens used today and this session, and your answer stats. |
-| `/quiz now` | Ask a question now. |
+| `/quiz now` | Ask a question now. A due review question comes first. |
+| `/quiz review` | Show how many review questions are due and queued, and ask the most overdue one now. |
 | `/quiz stats` | Show your answers, Solid, Partly, and Not yet counts, and your current and best streak. |
 | `/quiz log` | Write your review log to `~/learning/session-quiz.md`. |
 | `/quiz anki` | Write your review log as Anki cards to `~/learning/session-quiz-anki.tsv`. |
 | `/quiz free` | Use free-text questions. |
 | `/quiz choice` | Use multiple-choice questions. |
 
-The format, stats, and daily token counts are saved across sessions. The pane shows no counts while you answer; press **g** in the pane, or run `/quiz settings`, to see them.
+The format, stats, daily token counts, and review queue are saved across sessions. The pane shows no counts while you answer; press **g** in the pane, or run `/quiz settings`, to see them.
 
 ### Cost
 
-Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file comes back in the same reply, so it adds no call. A multiple-choice answer is checked by the plugin, with no second call. **Go deeper** makes one more call, only when you press it, of about 300 to 600 tokens. Nothing is capped: Settings shows tokens used today, the last week by day, and this session. On a Claude subscription, the calls count toward your plan's usage limits.
+Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file comes back in the same reply, so it adds no call. A multiple-choice answer is checked by the plugin, with no second call. A review question costs nothing to make, so a multiple-choice review costs no tokens at all. **Go deeper** makes one more call, only when you press it, of about 300 to 600 tokens. Nothing is capped: Settings shows tokens used today, the last week by day, and this session. On a Claude subscription, the calls count toward your plan's usage limits.
 
 ### In the code
 
@@ -119,6 +130,8 @@ All of these are constants at the top of [`hooks/register.tsx`](hooks/register.t
 | `ANSWER_CHARS` | 280 | Longest free-text answer. |
 | `DEFAULTS` | free text | The format before you change it. |
 | `ACCENT` | `claude` | The accent color, a theme key or a hex color such as `#e0a35a`. A theme key follows your Claude Code theme. |
+
+The review gaps and queue size are `INTERVALS` (1, 3, 7, 21 days) and `QUEUE_MAX` (50) in [`hooks/review.ts`](hooks/review.ts).
 
 ### Prompts
 
