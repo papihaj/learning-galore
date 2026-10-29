@@ -35,6 +35,7 @@ In the desktop app, click **+** next to the prompt box, then **Plugins**, **Add 
 ## Use it
 
 1. Send Claude a prompt. A question appears in the **Quiz** pane while Claude works. If the pane is not open, run `/quiz`.
+   Under the question, a dim line such as `From: hooks/register.tsx` names the file the idea came from. It only names a file the session actually touched, and adds a line number only when the session cites that line. When no file fits, the line is left out.
 2. Press **ctrl+x tab** to move into the pane. The pane says so when it does not have the keyboard.
 3. Answer the question:
    - **Free text:** type up to 280 characters, then press Enter or **Submit**. Long answers show in full under the box.
@@ -84,7 +85,7 @@ The format, question limit, token budget, and stats are saved across sessions. `
 
 ### Cost
 
-Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. A multiple-choice answer is checked by the plugin, with no second call. On a Claude subscription, the calls count toward your plan's usage limits.
+Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file comes back in the same reply, so it adds no call. A multiple-choice answer is checked by the plugin, with no second call. On a Claude subscription, the calls count toward your plan's usage limits.
 
 ### In the code
 
@@ -102,7 +103,7 @@ All of these are constants at the top of [`hooks/register.tsx`](hooks/register.t
 
 ### Prompts
 
-The prompts that make and grade questions are in [`PROMPTS.md`](PROMPTS.md), with the teaching ideas behind them. Edit the constants `ASK_SYSTEM`, `MOVES`, `CHOICE_RULES`, and `GRADE_SYSTEM` in `hooks/register.tsx` to change them.
+The prompts that make and grade questions are in [`PROMPTS.md`](PROMPTS.md), with the teaching ideas behind them. Edit the constants `ASK_SYSTEM`, `MOVES`, `CHOICE_RULES`, `SOURCE_RULE`, and `GRADE_SYSTEM` in `hooks/register.tsx` to change them.
 
 ## Develop
 
