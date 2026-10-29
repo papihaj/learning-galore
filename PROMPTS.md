@@ -124,7 +124,7 @@ Right answer: {multiple choice only: the right choice}
 Feedback they got: {the feedback}
 ```
 
-Longest reply: 350 tokens. If the token budget is used up, the pane shows the limit message instead of calling Haiku.
+Longest reply: 350 tokens.
 
 ## The teaching ideas behind the prompts
 

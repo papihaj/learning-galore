@@ -18,7 +18,10 @@ export type Quiz = {
 
 export type QuizUsage = { tokens: number; questions: number }
 
-export type QuizSettings = { format: Format; budget: number; maxQuestions: number }
+export type QuizSettings = { format: Format }
+
+// Tokens spent per local day (YYYY-MM-DD), kept in $.store for the Settings view.
+export type TokenLog = Record<string, number>
 
 export type Verdict = 'solid' | 'partly' | 'notYet'
 
@@ -39,6 +42,8 @@ declare module 'claude-code' {
       settings: Shaped<QuizSettings>
       asked: Shaped<string[]>
       stats: Shaped<QuizStats>
+      showSettings: Shaped<boolean>
+      tokenLog: Shaped<TokenLog>
     }
   }
 }

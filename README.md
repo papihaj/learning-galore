@@ -2,15 +2,23 @@
 
 Session Quiz is a Claude Code plugin that teaches you while Claude works. When Claude starts on a prompt, the plugin reads what your session has covered and asks you one open-ended question about the big ideas behind it. You answer in a pane beside the chat, and a short grade tells you what you got right and what you missed.
 
-It uses Claude Haiku, with a cap on how many questions and tokens each session can use.
+It uses Claude Haiku. There is no limit on how much you learn: the quiz never stops you, and token use shows only in Settings.
 
 ## Screenshots
 
-<!-- Add PNGs to docs/screenshots/ with these names. -->
+The Quiz pane sits beside the chat while Claude works:
 
-| Free-text question | Multiple choice | Feedback |
+![Claude Code with the Quiz pane open beside the chat](docs/screenshots/beside-chat.png)
+
+| Free-text question | Feedback | Multiple choice |
 | --- | --- | --- |
-| ![A free-text question in the Quiz pane](docs/screenshots/free-text.png) | ![A multiple-choice question in the Quiz pane](docs/screenshots/multiple-choice.png) | ![Feedback after an answer](docs/screenshots/feedback.png) |
+| ![A free-text question with an answer typed in](docs/screenshots/free-text.png) | ![The grade after a free-text answer](docs/screenshots/feedback.png) | ![A multiple-choice question with one answer selected](docs/screenshots/multiple-choice.png) |
+
+| Go deeper | Settings |
+| --- | --- |
+| ![A short lesson after a missed question](docs/screenshots/go-deeper.png) | ![Settings with token use and answer stats](docs/screenshots/settings.png) |
+
+The screenshots come from a real session. To retake one, see [Develop](#develop).
 
 ## Install
 
@@ -43,13 +51,13 @@ In the desktop app, click **+** next to the prompt box, then **Plugins**, **Add 
 4. Read the feedback, then press **Next question**, or go back to your work. A new question comes the next time Claude starts working.
 5. If you missed the question (a wrong pick, or feedback that starts with "Partly." or "Not yet."), press **d** or **Go deeper** for a short lesson on the gap: the core idea, one example, and the one thing to remember. It shows under the feedback.
 
-Press **s** to skip a question and **f** to switch between free text and multiple choice.
+Press **s** to skip a question, **f** to switch between free text and multiple choice, and **g** to open Settings.
 
 The first prompt of a session gives no question, because there is nothing to ask about yet.
 
 ### Streaks and stats
 
-The plugin counts every answer across sessions. Once you have answered a question, the top of the pane shows your streak and total, such as `3-day streak · 12 answered`. A streak is the number of days in a row, by your local date, with at least one answer. It ends when a whole day passes with no answer. After each answer, the status line shows your streak until the next question.
+The plugin counts every answer across sessions. The quiz itself shows no numbers, so it stays about the ideas. Your streak and totals are in Settings. A streak is the number of days in a row, by your local date, with at least one answer. It ends when a whole day passes with no answer.
 
 Each answer is tallied as Solid, Partly, or Not yet. A free-text answer takes the first word of its grade. A multiple-choice answer is Solid when it is right and Not yet when it is wrong. Run `/quiz stats` to see the totals.
 
@@ -73,20 +81,18 @@ Tool calls on secrets files (`.env`, `.env.*`, `*.pem`, `id_rsa*`, `credentials*
 
 | Command | What it does |
 | --- | --- |
-| `/quiz` | Open the pane and show this session's usage. |
+| `/quiz` | Open the pane. |
+| `/quiz settings` | Open Settings in the pane: format, tokens used today and this session, and your answer stats. |
 | `/quiz now` | Ask a question now. |
 | `/quiz stats` | Show your answers, Solid, Partly, and Not yet counts, and your current and best streak. |
 | `/quiz free` | Use free-text questions. |
 | `/quiz choice` | Use multiple-choice questions. |
-| `/quiz max 5` | Ask at most 5 questions per session. The default is 10. |
-| `/quiz budget 30000` | Use at most 30,000 tokens per session. The default is 20,000. |
-| `/quiz reset` | Reset this session's question and token count. |
 
-The format, question limit, token budget, and stats are saved across sessions. `/quiz reset` does not clear stats.
+The format, stats, and daily token counts are saved across sessions. The pane shows no counts while you answer; press **g** in the pane, or run `/quiz settings`, to see them.
 
 ### Cost
 
-Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file comes back in the same reply, so it adds no call. A multiple-choice answer is checked by the plugin, with no second call. **Go deeper** makes one more call, only when you press it, of about 300 to 600 tokens. It counts toward the token budget but not the question limit. On a Claude subscription, the calls count toward your plan's usage limits.
+Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file comes back in the same reply, so it adds no call. A multiple-choice answer is checked by the plugin, with no second call. **Go deeper** makes one more call, only when you press it, of about 300 to 600 tokens. Nothing is capped: Settings shows tokens used today, the last week by day, and this session. On a Claude subscription, the calls count toward your plan's usage limits.
 
 ### In the code
 
@@ -100,7 +106,7 @@ All of these are constants at the top of [`hooks/register.tsx`](hooks/register.t
 | `LESSON_MAX_TOKENS` | 350 | Longest reply for a **Go deeper** lesson. |
 | `CONTEXT_CHARS` | 6000 | How much of the session is sent to make a question. |
 | `ANSWER_CHARS` | 280 | Longest free-text answer. |
-| `DEFAULTS` | free text, 20,000 tokens, 10 questions | Settings before you change them with `/quiz`. |
+| `DEFAULTS` | free text | The format before you change it. |
 | `ACCENT` | `claude` | The accent color, a theme key or a hex color such as `#e0a35a`. A theme key follows your Claude Code theme. |
 
 ### Prompts
@@ -124,6 +130,15 @@ npx -p typescript tsc -p .
 ```
 
 `types/index.d.ts` declares the values the pane keeps in session state.
+
+To retake a screenshot, run the plugin in a tmux session, capture it with colors, and render it with headless Chrome:
+
+```sh
+tmux capture-pane -e -p -t <session> > shot.ansi
+python3 scripts/term-shot.py shot.ansi docs/screenshots/<name>.png --cols 125:170 --rows 1:30 --title "Quiz pane" --no-bg
+```
+
+`--cols` and `--rows` crop to the Quiz pane. Leave them out for the whole window.
 
 ## Roadmap
 
