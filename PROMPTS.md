@@ -39,7 +39,7 @@ Teaching move for this question: {one move from the list below}
 {the format rules below}
 ```
 
-The session text holds each message's text, cut to 600 characters, and one line per tool call, such as `tool Edit: src/search.ts`.
+The session text holds each message's text, cut to 600 characters, and one line per tool call, such as `tool Edit: src/search.ts`. Likely secrets are redacted first; see Privacy in the README.
 
 **Teaching moves** (`MOVES`). The plugin uses them in turn, one per question, so the questions vary:
 

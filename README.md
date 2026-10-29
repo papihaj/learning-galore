@@ -45,6 +45,20 @@ Press **s** to skip a question and **f** to switch between free text and multipl
 
 The first prompt of a session gives no question, because there is nothing to ask about yet.
 
+## Privacy
+
+To make a question, the plugin sends Haiku a short digest of the session: the text of the last 40 messages, each cut to 600 characters, and one line per tool call with its file path, command, or search pattern. A tool call shows only as that line, not its output. The digest is at most 6,000 characters. To grade a free-text answer, it sends only the question and your answer.
+
+Before the digest leaves the plugin, likely secrets are replaced with `[redacted key]` or `[redacted secret]`:
+
+- API keys and tokens in known formats: Anthropic and OpenAI (`sk-`), GitHub (`ghp_`, `github_pat_`), AWS key IDs (`AKIA`), Slack (`xoxb-`), and JWTs.
+- Private key blocks (`-----BEGIN ... PRIVATE KEY-----`).
+- `Authorization: Bearer ...` and `Basic ...` values.
+- Values of upper-case names that contain KEY, TOKEN, SECRET, PASSWORD, or API, as in `.env` files (`STRIPE_API_KEY=...`).
+- Long random-looking strings: 32 or more characters of hex, or of mixed-case letters and digits. Commit hashes count, so they are redacted too.
+
+Tool calls on secrets files (`.env`, `.env.*`, `*.pem`, `id_rsa*`, `credentials*`) are left out entirely. The patterns are in [`hooks/redact.ts`](hooks/redact.ts). They catch common shapes, not every secret, so avoid pasting credentials into a session.
+
 ## Customize
 
 ### Commands
@@ -95,6 +109,7 @@ Check the plugin before you push:
 
 ```sh
 claude plugin validate .
+claude plugin test .
 npx -p typescript tsc -p .
 ```
 
