@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Api, Register, RenderChildren } from 'claude-code'
 
 import type { Format, Quiz, QuizSettings, QuizStats, QuizUsage, Verdict } from '../types'
+import { checkFocus, FOCUS_MAX, parseFocus } from './focus'
 import { isSecretPath, redact } from './redact'
 
 const PANE = 'session-quiz'
@@ -27,12 +28,13 @@ const EMPTY: Quiz = {
   lesson: '',
   error: '',
   source: '',
+  focus: '',
 }
 const DEFAULTS: QuizSettings = { format: 'free', budget: 20000, maxQuestions: 10 }
 const NO_STATS: QuizStats = { answered: 0, solid: 0, partly: 0, notYet: 0, streak: 0, best: 0, lastDay: '' }
 
 const quiz = atom({ plugin: 'session-quiz', key: 'quiz' } as const, EMPTY, {
-  shape: 'quiz-5',
+  shape: 'quiz-6',
 })
 const usage = atom(
   { plugin: 'session-quiz', key: 'usage' } as const,
@@ -81,6 +83,10 @@ const CHOICE_RULES = `For multiple choice: four options; the right one is listed
 
 // Asked in the same call as the question, so a source costs no extra request.
 const SOURCE_RULE = `Optionally add "source": the one file the concept came from, copied exactly from a "tool ...: <path>" line in the session. Add ":<line>" only if the session itself shows that file with that line number. Leave "source" out if no file fits.`
+
+// Sent only when the person has named topics. It never forces one the
+// session did not cover, since a question about unseen work cannot be retrieved.
+const FOCUS_RULE = `If the session works with one of these topics, ask about it first, from a fresh angle if it was already asked, and add "focus": that topic, copied exactly from the list. If the session does not touch any of them, ask as usual and leave "focus" out. Never ask about a topic the session does not cover.`
 
 const GRADE_SYSTEM = `You are a kind, exact professor giving feedback on a student's short answer to a review question.
 Open with one verdict word: "Solid.", "Partly." or "Not yet."
@@ -228,6 +234,11 @@ function statsSummary(t: QuizStats): string {
   ].join(' ')
 }
 
+const savedFocus = async ($: Api): Promise<string[]> => {
+  const saved = await $.store.get('focus')
+  return Array.isArray(saved) ? saved.filter((t): t is string => typeof t === 'string') : []
+}
+
 const openPane = ($: Api) => $.ui.open({ id: PANE, title: 'Quiz' })
 
 async function askQuestion($: Api) {
@@ -250,11 +261,15 @@ async function askQuestion($: Api) {
 
   const previous: string[] = await read($, asked)
   const move = MOVES[previous.length % MOVES.length]
+  const topics = await savedFocus($)
+  const focusField = topics.length > 0 ? ', "focus": "..."' : ''
   const shape =
     format === 'choice'
-      ? `${CHOICE_RULES}\n${SOURCE_RULE}\nReply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "..."}`
-      : `${SOURCE_RULE}\nReply as {"question": "...", "source": "..."}`
-  const prompt = `Recent session:\n<session>\n${context}\n</session>\n\nAlready asked (pick a different concept or angle):\n${previous.slice(-10).join('\n') || '(none)'}\n\nTeaching move for this question: ${move}\n\n${shape}`
+      ? `${CHOICE_RULES}\n${SOURCE_RULE}\nReply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "..."${focusField}}`
+      : `${SOURCE_RULE}\nReply as {"question": "...", "source": "..."${focusField}}`
+  const focus =
+    topics.length > 0 ? `Topics the student wants to get better at:\n${topics.join('\n')}\n${FOCUS_RULE}\n\n` : ''
+  const prompt = `Recent session:\n<session>\n${context}\n</session>\n\nAlready asked (pick a different concept or angle):\n${previous.slice(-10).join('\n') || '(none)'}\n\nTeaching move for this question: ${move}\n\n${focus}${shape}`
 
   const r = await complete($, {
     model: MODEL,
@@ -287,6 +302,7 @@ async function askQuestion($: Api) {
     correct: isChoice ? order.indexOf(0) : -1,
     explanation: typeof data?.explanation === 'string' ? data.explanation : '',
     source: checkSource(data?.source, session),
+    focus: checkFocus(data?.focus, topics),
   }))
   $.ui.status('A quiz question is waiting')
   // Takes the keyboard only over an empty prompt, so it never interrupts typing.
@@ -378,7 +394,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'quiz',
-      description: 'Open the Quiz pane. Args: now | stats | free | choice | budget <tokens> | max <questions> | reset',
+      description: 'Open the Quiz pane. Args: now | stats | focus <topics> | free | choice | budget <tokens> | max <questions> | reset',
     })
     const saved = await $.store.get('settings')
     if (saved !== undefined) await update($, settings, () => ({ ...DEFAULTS, ...(saved as Partial<QuizSettings>) }))
@@ -437,6 +453,26 @@ export const register: Register = on => {
     if (word === 'stats') {
       const t: QuizStats = { ...NO_STATS, ...((await $.store.get('stats')) as Partial<QuizStats> | undefined) }
       return { text: statsSummary(t) }
+    }
+    if (word === 'focus') {
+      const rest = e.args.trim().slice(word.length).trim()
+      if (rest === '') {
+        const topics = await savedFocus($)
+        return {
+          text: topics.length === 0
+            ? 'No focus topics. Add some with /quiz focus <topic>, <topic>.'
+            : `Focus topics: ${topics.join(', ')}.`,
+        }
+      }
+      if (rest === 'clear') {
+        await $.store.delete('focus')
+        return { text: 'Focus topics cleared.' }
+      }
+      const topics = parseFocus(rest)
+      if (topics.length === 0) return { text: 'Usage: /quiz focus <topic>, <topic>' }
+      await $.store.set('focus', topics.slice(0, FOCUS_MAX))
+      const dropped = topics.length > FOCUS_MAX ? ` Kept the first ${FOCUS_MAX}.` : ''
+      return { text: `Focus topics: ${topics.slice(0, FOCUS_MAX).join(', ')}.${dropped}` }
     }
     if (word === 'now') {
       void askQuestion($)
@@ -519,6 +555,7 @@ export const register: Register = on => {
     return frame(
       <Text bold>{q.question}</Text>,
       q.source !== '' && <Text dimColor>From: {q.source}</Text>,
+      q.focus !== '' && <Text dimColor>Focus: {q.focus}</Text>,
       q.status === 'asking' && q.format === 'choice' && (
         <Box flexDirection="column" marginTop={1}>
           {q.choices.map((c, i) => (

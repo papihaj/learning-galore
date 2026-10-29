@@ -14,6 +14,7 @@ export type Quiz = {
   lesson: string
   error: string
   source: string
+  focus: string
 }
 
 export type QuizUsage = { tokens: number; questions: number }

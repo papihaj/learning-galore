@@ -36,6 +36,8 @@ Already asked (pick a different concept or angle):
 
 Teaching move for this question: {one move from the list below}
 
+{the focus rule below, only if you named focus topics}
+
 {the format rules below}
 ```
 
@@ -49,6 +51,16 @@ The session text holds each message's text, cut to 600 characters, and one line 
 4. Compare: ask how this approach differs from a close alternative, and when each wins.
 5. Misconception: state a plausible but wrong belief about the idea and ask what is wrong with it.
 6. Teach it: ask the student to explain the idea to a junior developer in two sentences.
+
+**Focus rule** (`FOCUS_RULE`). It is sent only when you have named topics with `/quiz focus`:
+
+```text
+Topics the student wants to get better at:
+{your focus topics, one per line}
+If the session works with one of these topics, ask about it first, from a fresh angle if it was already asked, and add "focus": that topic, copied exactly from the list. If the session does not touch any of them, ask as usual and leave "focus" out. Never ask about a topic the session does not cover.
+```
+
+When it is sent, each format's reply shape below also ends with `, "focus": "..."`. The plugin shows the focus line only if the topic matches one you saved, ignoring case. Otherwise it shows nothing.
 
 **Format rules.** Both formats start with the source rule (`SOURCE_RULE`):
 
@@ -133,6 +145,7 @@ Longest reply: 350 tokens. If the token budget is used up, the pane shows the li
 - **Transfer.** Using an idea in a new setting shows you understand it, not just that you remember the session.
 - **Bloom's levels.** The teaching moves go from explaining, to predicting and applying, to comparing and judging.
 - **Spreading practice across topics.** The "already asked" list pushes each question to a different concept.
+- **Learner-chosen goals.** Topics you name come first, but only when the session covers them, so every question is still about work you just did.
 - **Misconceptions as wrong choices.** Wrong choices come from real misunderstandings, so a wrong pick shows what to fix.
 - **Specific feedback.** The grade names the exact gap and ends with the key idea.
 - **Worked examples on demand.** After a miss, a short explanation with one concrete example helps more than another question. It comes only when you ask, so it costs nothing when you do not need it.

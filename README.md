@@ -45,6 +45,16 @@ In the desktop app, click **+** next to the prompt box, then **Plugins**, **Add 
 
 Press **s** to skip a question and **f** to switch between free text and multiple choice.
 
+### Topics to prioritize
+
+Name up to 5 topics you want to get better at, separated by commas:
+
+```text
+/quiz focus SQL indexes, React effects
+```
+
+When the session works with one of them, the next question asks about that topic first, and a dim line such as `Focus: SQL indexes` shows under the question. When the session touches none of them, the question is chosen as usual. The plugin never asks about a topic the session did not cover. Run `/quiz focus` to see your topics and `/quiz focus clear` to remove them. Topics are saved across sessions.
+
 The first prompt of a session gives no question, because there is nothing to ask about yet.
 
 ### Streaks and stats
@@ -76,17 +86,20 @@ Tool calls on secrets files (`.env`, `.env.*`, `*.pem`, `id_rsa*`, `credentials*
 | `/quiz` | Open the pane and show this session's usage. |
 | `/quiz now` | Ask a question now. |
 | `/quiz stats` | Show your answers, Solid, Partly, and Not yet counts, and your current and best streak. |
+| `/quiz focus SQL indexes, React effects` | Ask about these topics first when the session touches them. At most 5. |
+| `/quiz focus` | List your focus topics. |
+| `/quiz focus clear` | Remove all focus topics. |
 | `/quiz free` | Use free-text questions. |
 | `/quiz choice` | Use multiple-choice questions. |
 | `/quiz max 5` | Ask at most 5 questions per session. The default is 10. |
 | `/quiz budget 30000` | Use at most 30,000 tokens per session. The default is 20,000. |
 | `/quiz reset` | Reset this session's question and token count. |
 
-The format, question limit, token budget, and stats are saved across sessions. `/quiz reset` does not clear stats.
+The format, question limit, token budget, focus topics, and stats are saved across sessions. `/quiz reset` does not clear stats.
 
 ### Cost
 
-Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file comes back in the same reply, so it adds no call. A multiple-choice answer is checked by the plugin, with no second call. **Go deeper** makes one more call, only when you press it, of about 300 to 600 tokens. It counts toward the token budget but not the question limit. On a Claude subscription, the calls count toward your plan's usage limits.
+Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file and focus topic come back in the same reply, so they add no call. Focus topics add a few dozen tokens to each question. A multiple-choice answer is checked by the plugin, with no second call. **Go deeper** makes one more call, only when you press it, of about 300 to 600 tokens. It counts toward the token budget but not the question limit. On a Claude subscription, the calls count toward your plan's usage limits.
 
 ### In the code
 
@@ -105,7 +118,7 @@ All of these are constants at the top of [`hooks/register.tsx`](hooks/register.t
 
 ### Prompts
 
-The prompts that make and grade questions and write **Go deeper** lessons are in [`PROMPTS.md`](PROMPTS.md), with the teaching ideas behind them. Edit the constants `ASK_SYSTEM`, `MOVES`, `CHOICE_RULES`, `SOURCE_RULE`, `GRADE_SYSTEM`, and `LESSON_SYSTEM` in `hooks/register.tsx` to change them.
+The prompts that make and grade questions and write **Go deeper** lessons are in [`PROMPTS.md`](PROMPTS.md), with the teaching ideas behind them. Edit the constants `ASK_SYSTEM`, `MOVES`, `CHOICE_RULES`, `SOURCE_RULE`, `FOCUS_RULE`, `GRADE_SYSTEM`, and `LESSON_SYSTEM` in `hooks/register.tsx` to change them.
 
 ## Develop
 
@@ -127,4 +140,4 @@ npx -p typescript tsc -p .
 
 ## Roadmap
 
-See [TODOS.md](TODOS.md). Next up is letting you name topics to prioritize.
+See [TODOS.md](TODOS.md). Next up is giving more weight to topics you often miss.
