@@ -14,6 +14,8 @@ export type Quiz = {
   lesson: string
   error: string
   source: string
+  // The day a review item was first missed; empty for a new question.
+  reviewFrom: string
 }
 
 export type QuizUsage = { tokens: number; questions: number }
@@ -29,6 +31,20 @@ export type QuizStats = Record<Verdict, number> & {
   streak: number
   best: number
   lastDay: string
+}
+
+// A missed question kept in $.store for spaced review. `choices` lists the
+// right one first, as the model wrote it; the pane shuffles them each time.
+// `interval` is the days until `due` (YYYY-MM-DD), 0 for a question never missed.
+export type ReviewItem = {
+  question: string
+  format: Format
+  choices: string[]
+  explanation: string
+  source: string
+  added: string
+  interval: number
+  due: string
 }
 
 declare module 'claude-code' {

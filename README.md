@@ -45,7 +45,17 @@ In the desktop app, click **+** next to the prompt box, then **Plugins**, **Add 
 
 Press **s** to skip a question and **f** to switch between free text and multiple choice.
 
-The first prompt of a session gives no question, because there is nothing to ask about yet.
+The first prompt of a session gives no new question, because there is nothing to ask about yet. A review question can still come then.
+
+### Review of missed questions
+
+A question you miss comes back later, because recalling an idea after a gap makes it last. When you miss one, the plugin saves it in a review queue that is kept across sessions. A multiple-choice question keeps its choices and explanation.
+
+A saved question is due 1 day after the miss. Each time you get it right, the gap grows to 3 days, then 7, then 21. Getting it right at 21 days takes it out of the queue. Missing it again sets the gap back to 1 day.
+
+When a question is due, the plugin asks it in place of a new one, with a dim `Review from 2026-10-20` line that gives the day you first missed it. It asks the most overdue question first. Making a review question needs no model call. A free-text answer is still graded by Haiku. If you skip a review question, it comes back the next day.
+
+The queue holds at most 50 questions. When it is full, the questions due last are dropped first.
 
 ### Streaks and stats
 
@@ -74,7 +84,8 @@ Tool calls on secrets files (`.env`, `.env.*`, `*.pem`, `id_rsa*`, `credentials*
 | Command | What it does |
 | --- | --- |
 | `/quiz` | Open the pane and show this session's usage. |
-| `/quiz now` | Ask a question now. |
+| `/quiz now` | Ask a question now. A due review question comes first. |
+| `/quiz review` | Show how many review questions are due and queued, and ask the most overdue one now. |
 | `/quiz stats` | Show your answers, Solid, Partly, and Not yet counts, and your current and best streak. |
 | `/quiz free` | Use free-text questions. |
 | `/quiz choice` | Use multiple-choice questions. |
@@ -82,11 +93,11 @@ Tool calls on secrets files (`.env`, `.env.*`, `*.pem`, `id_rsa*`, `credentials*
 | `/quiz budget 30000` | Use at most 30,000 tokens per session. The default is 20,000. |
 | `/quiz reset` | Reset this session's question and token count. |
 
-The format, question limit, token budget, and stats are saved across sessions. `/quiz reset` does not clear stats.
+The format, question limit, token budget, stats, and review queue are saved across sessions. `/quiz reset` does not clear stats or the review queue. A review question counts toward the question limit.
 
 ### Cost
 
-Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file comes back in the same reply, so it adds no call. A multiple-choice answer is checked by the plugin, with no second call. **Go deeper** makes one more call, only when you press it, of about 300 to 600 tokens. It counts toward the token budget but not the question limit. On a Claude subscription, the calls count toward your plan's usage limits.
+Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file comes back in the same reply, so it adds no call. A multiple-choice answer is checked by the plugin, with no second call. A review question costs nothing to make, so a multiple-choice review costs no tokens at all. **Go deeper** makes one more call, only when you press it, of about 300 to 600 tokens. It counts toward the token budget but not the question limit. On a Claude subscription, the calls count toward your plan's usage limits.
 
 ### In the code
 
@@ -102,6 +113,8 @@ All of these are constants at the top of [`hooks/register.tsx`](hooks/register.t
 | `ANSWER_CHARS` | 280 | Longest free-text answer. |
 | `DEFAULTS` | free text, 20,000 tokens, 10 questions | Settings before you change them with `/quiz`. |
 | `ACCENT` | `claude` | The accent color, a theme key or a hex color such as `#e0a35a`. A theme key follows your Claude Code theme. |
+
+The review gaps and queue size are `INTERVALS` (1, 3, 7, 21 days) and `QUEUE_MAX` (50) in [`hooks/review.ts`](hooks/review.ts).
 
 ### Prompts
 
