@@ -34,6 +34,20 @@ const format = atom({ plugin: 'session-quiz', key: 'format' } as const, 'free', 
 const asked = atom({ plugin: 'session-quiz', key: 'asked' } as const, [], { shape: 'asked-1' })
 const showSettings = atom({ plugin: 'session-quiz', key: 'showSettings' } as const, false, { shape: 'show-settings-1' })
 const sessionTokens = atom({ plugin: 'session-quiz', key: 'sessionTokens' } as const, 0, { shape: 'session-tokens-1' })
+const petStep = atom({ plugin: 'session-quiz', key: 'petStep' } as const, 0, { shape: 'pet-step-1' })
+
+// A cat that walks back and forth along the bottom of the pane. It faces the
+// way it walks (tail behind it) and wags its tail every other step.
+const CAT_TOP = ' /\\_/\\ '
+const catBody = (right: boolean, wag: boolean) =>
+  right ? `${wag ? '~' : '-'}( o.o )` : `( o.o )${wag ? '~' : '-'}`
+const CAT_WIDTH = 8
+
+function petAt(step: number, track: number): { x: number; right: boolean } {
+  if (track <= 0) return { x: 0, right: true }
+  const p = step % (2 * track)
+  return p < track ? { x: p, right: true } : { x: 2 * track - p, right: false }
+}
 
 // A model call in flight in each busy state, and where a reload that dropped it settles.
 const BUSY = { thinking: 'idle', grading: 'asking', teaching: 'answered' } as const
@@ -302,6 +316,7 @@ export const register: Register = on => {
     // A reload drops any model call in flight; state survives it, so settle
     // whatever that call left waiting.
     await update($, quiz, (q): Quiz => (isBusy(q.status) ? { ...q, status: BUSY[q.status] } : q))
+    $.clock.every(450, () => void update($, petStep, n => n + 1))
     void openPane($)
     return next(e)
   })
@@ -361,6 +376,8 @@ export const register: Register = on => {
     const rule = <Text dimColor>{'─'.repeat(width)}</Text>
     // The field's text area: the pane width less the padding, border and hint.
     const fieldWidth = Math.max(0, width - 10)
+    const step: number = await read($, petStep)
+    const pet = petAt(step, width - CAT_WIDTH - 1)
 
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
@@ -498,6 +515,10 @@ export const register: Register = on => {
             </Box>
           )}
           {!e.props.isFocused && <Text dimColor>ctrl+x tab to answer here</Text>}
+        </Box>
+        <Box flexDirection="column" marginTop={1}>
+          <Text color="claude">{' '.repeat(pet.right ? pet.x + 1 : pet.x)}{CAT_TOP}</Text>
+          <Text color="claude">{' '.repeat(pet.x)}{catBody(pet.right, step % 2 === 0)}</Text>
         </Box>
       </Box>
     )
