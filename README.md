@@ -1,143 +1,85 @@
 # Session Quiz
 
-Session Quiz is a Claude Code plugin that teaches you while Claude works. When Claude starts on a prompt, the plugin reads what your session has covered and asks you one open-ended question about the big ideas behind it. You answer in a pane beside the chat, and a short grade tells you what you got right and what you missed.
+I felt like I was doing a lot of stuff with Claude Code but not retaining much of it. I built Session Quiz so I can understand what I'm building, or at least the high-level architecture and systems design ideas behind it.
 
-It uses Claude Haiku. There is no limit on how much you learn: the quiz never stops you, and token use shows only in Settings.
+Session Quiz is a Claude Code plugin. While Claude works, it asks you one short question about a key term in what you're building. If you're adding a debounce to a search box and don't really know what debounce means, this is how you find out, and remember it.
 
-## Screenshots
-
-The Quiz pane sits beside the chat while Claude works:
+- **Questions while you wait:** a question shows up in a pane beside the chat while Claude is busy.
+- **Key terms:** each question is built around one term from your work. After you answer, the term and a one-line definition are highlighted.
+- **Answer your way:** type a sentence or two, or pick from multiple choice.
+- **Feedback:** a short grade says what you got right and what you missed. After a miss, **Go deeper** gives you a short lesson.
+- **Focus areas:** name what you want to get better at, like data science, and questions about your work connect to it.
+- **Notes:** your key terms, the ones you know and the ones to work on, are saved to a Markdown file in your project.
 
 ![Claude Code with the Quiz pane open beside the chat](docs/screenshots/beside-chat.png)
 
-| Free-text question | Feedback | Multiple choice |
-| --- | --- | --- |
-| ![A free-text question with an answer typed in](docs/screenshots/free-text.png) | ![The grade after a free-text answer](docs/screenshots/feedback.png) | ![A multiple-choice question with one answer selected](docs/screenshots/multiple-choice.png) |
+| A question | Feedback | Multiple choice |
+|---|---|---|
+| ![A free-text question with an answer typed in](docs/screenshots/free-text.png) | ![The grade after an answer](docs/screenshots/feedback.png) | ![A multiple-choice question](docs/screenshots/multiple-choice.png) |
 
-| Go deeper | Settings |
-| --- | --- |
-| ![A short lesson after a missed question](docs/screenshots/go-deeper.png) | ![Settings with token use and answer stats](docs/screenshots/settings.png) |
+| Linked to a focus area | Go deeper | Your notes |
+|---|---|---|
+| ![A question linked to data science](docs/screenshots/linked-question.png) | ![A short lesson after a miss](docs/screenshots/go-deeper.png) | ![The notes file with key terms](docs/screenshots/notes.png) |
 
-The screenshots come from a real session. To retake one, see [Develop](#develop).
+## How to install
 
-## Install
+In Claude Code, paste this and press Return:
 
-At the prompt of a Claude Code terminal session:
-
-```text
+```
 /plugin install session-quiz --marketplace papihaj/learning-galore
 ```
 
-From a shell:
+Answer `y`, then pick the user scope so it works in every session.
 
-```sh
-claude plugin install session-quiz --marketplace papihaj/learning-galore
+## How to use it
+
+1. Use your Claude Code sessions normally.
+2. Every so often, the status line says **A quiz question is waiting**. Open the pane with `/quiz`, or press **ctrl+x tab** if it's already open.
+3. Answer it. Type an answer and press Return, or press **1** to **4** to pick a choice and **a** to submit. Press **s** to skip.
+4. Read the feedback. If you missed it, press **d** for a short lesson.
+
+Press **f** to switch between typing and multiple choice. Press **g** to see how many tokens the quiz has used. There's no limit, so it never stops you.
+
+### Focus areas
+
+Tell it what you want to get better at:
+
+```
+/quiz focus data science, distributed systems
 ```
 
-Answer `y` to add the marketplace, then pick a scope. The user scope turns it on in every session.
+You don't need to be working on those. The question stays about what you're building, but when there's a real link, it connects it to your area. For example, while you build a search box, you might get a question about batching a stream of sensor readings, with **Linked to: data science** under it. Run `/quiz focus clear` to remove them.
 
-In the desktop app, click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `papihaj/learning-galore`, then **Add plugin**.
+### Your notes
 
-## Use it
+Every answer is saved in the project you're working in, in `learning-galore-notes/notes.md`:
 
-1. Send Claude a prompt. A question appears in the **Quiz** pane while Claude works. If the pane is not open, run `/quiz`.
-   Under the question, a dim line such as `From: hooks/register.tsx` names the file the idea came from. It only names a file the session actually touched, and adds a line number only when the session cites that line. When no file fits, the line is left out.
-2. Press **ctrl+x tab** to move into the pane. The pane says so when it does not have the keyboard.
-3. Answer the question:
-   - **Free text:** type up to 280 characters, then press Enter or **Submit**. Long answers show in full under the box.
-   - **Multiple choice:** press **1** to **4** to select an answer. You can change your choice. Then press **a** or **Submit**.
-4. Read the feedback, then press **Next question**, or go back to your work. A new question comes the next time Claude starts working.
-5. If you missed the question (a wrong pick, or feedback that starts with "Partly." or "Not yet."), press **d** or **Go deeper** for a short lesson on the gap: the core idea, one example, and the one thing to remember. It shows under the feedback.
+- **Key terms:** every term you've been asked about, with a one-line definition.
+- **Terms to work on:** ones you missed last time.
+- **Terms I know:** ones you got right last time.
+- **Questions:** every question, your answer and the feedback, newest first.
 
-Press **s** to skip a question, **f** to switch between free text and multiple choice, and **g** to open Settings.
+If you don't want the notes in that project's git history, add `learning-galore-notes/` to its `.gitignore`.
 
-The first prompt of a session gives no question, because there is nothing to ask about yet.
+## Commands
 
-### Streaks and stats
-
-The plugin counts every answer across sessions. The quiz itself shows no numbers, so it stays about the ideas. Your streak and totals are in Settings. A streak is the number of days in a row, by your local date, with at least one answer. It ends when a whole day passes with no answer.
-
-Each answer is tallied as Solid, Partly, or Not yet. A free-text answer takes the first word of its grade. A multiple-choice answer is Solid when it is right and Not yet when it is wrong. Run `/quiz stats` to see the totals.
+| Command | What it does |
+|---|---|
+| `/quiz` | Open the Quiz pane. |
+| `/quiz now` | Ask a question now. |
+| `/quiz free` or `/quiz choice` | Type answers, or pick from multiple choice. |
+| `/quiz focus <areas>` | Set up to 5 focus areas. `/quiz focus` lists them. |
+| `/quiz notes` | Show where your notes are. |
+| `/quiz settings` | Show the format and the tokens used. |
 
 ## Privacy
 
-To make a question, the plugin sends Haiku a short digest of the session: the text of the last 40 messages, each cut to 600 characters, and one line per tool call with its file path, command, or search pattern. A tool call shows only as that line, not its output. The digest is at most 6,000 characters. To grade a free-text answer, it sends only the question and your answer.
+The quiz sends Claude Haiku a short summary of your session: the last 40 messages, cut short, and the names of the files and commands Claude used. Before anything leaves your computer, it removes things that look like secrets, such as API keys, tokens, passwords in `.env` files and private keys, and it skips secret files entirely. Your answers are cleaned the same way before they're saved to your notes. The patterns are in [`hooks/redact.ts`](hooks/redact.ts).
 
-Before the digest leaves the plugin, likely secrets are replaced with `[redacted key]` or `[redacted secret]`:
+Each question costs about 300 to 1,000 tokens. On a Claude subscription, that counts toward your usage limits.
 
-- API keys and tokens in known formats: Anthropic and OpenAI (`sk-`), GitHub (`ghp_`, `github_pat_`), AWS key IDs (`AKIA`), Slack (`xoxb-`), and JWTs.
-- Private key blocks (`-----BEGIN ... PRIVATE KEY-----`).
-- `Authorization: Bearer ...` and `Basic ...` values.
-- Values of upper-case names that contain KEY, TOKEN, SECRET, PASSWORD, or API, as in `.env` files (`STRIPE_API_KEY=...`).
-- Long random-looking strings: 32 or more characters of hex, or of mixed-case letters and digits. Commit hashes count, so they are redacted too.
+## Make it yours
 
-Tool calls on secrets files (`.env`, `.env.*`, `*.pem`, `id_rsa*`, `credentials*`) are left out entirely. The patterns are in [`hooks/redact.ts`](hooks/redact.ts). They catch common shapes, not every secret, so avoid pasting credentials into a session.
+The prompts and the teaching ideas behind them are in [`PROMPTS.md`](PROMPTS.md). The settings, like the model and the longest answer, are at the top of [`hooks/register.tsx`](hooks/register.tsx).
 
-## Customize
-
-### Commands
-
-| Command | What it does |
-| --- | --- |
-| `/quiz` | Open the pane. |
-| `/quiz settings` | Open Settings in the pane: format, tokens used today and this session, and your answer stats. |
-| `/quiz now` | Ask a question now. |
-| `/quiz stats` | Show your answers, Solid, Partly, and Not yet counts, and your current and best streak. |
-| `/quiz free` | Use free-text questions. |
-| `/quiz choice` | Use multiple-choice questions. |
-
-The format, stats, and daily token counts are saved across sessions. The pane shows no counts while you answer; press **g** in the pane, or run `/quiz settings`, to see them.
-
-### Cost
-
-Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file comes back in the same reply, so it adds no call. A multiple-choice answer is checked by the plugin, with no second call. **Go deeper** makes one more call, only when you press it, of about 300 to 600 tokens. Nothing is capped: Settings shows tokens used today, the last week by day, and this session. On a Claude subscription, the calls count toward your plan's usage limits.
-
-### In the code
-
-All of these are constants at the top of [`hooks/register.tsx`](hooks/register.tsx):
-
-| Constant | Default | What it controls |
-| --- | --- | --- |
-| `MODEL` | `haiku` | The model that writes and grades questions. |
-| `ASK_MAX_TOKENS` | 400 | Longest reply when making a question. |
-| `GRADE_MAX_TOKENS` | 300 | Longest reply when grading. |
-| `LESSON_MAX_TOKENS` | 350 | Longest reply for a **Go deeper** lesson. |
-| `CONTEXT_CHARS` | 6000 | How much of the session is sent to make a question. |
-| `ANSWER_CHARS` | 280 | Longest free-text answer. |
-| `DEFAULTS` | free text | The format before you change it. |
-| `ACCENT` | `claude` | The accent color, a theme key or a hex color such as `#e0a35a`. A theme key follows your Claude Code theme. |
-
-### Prompts
-
-The prompts that make and grade questions and write **Go deeper** lessons are in [`PROMPTS.md`](PROMPTS.md), with the teaching ideas behind them. Edit the constants `ASK_SYSTEM`, `MOVES`, `CHOICE_RULES`, `SOURCE_RULE`, `GRADE_SYSTEM`, and `LESSON_SYSTEM` in `hooks/register.tsx` to change them.
-
-## Develop
-
-Run a session with the plugin loaded from this folder. It reloads when you save a file:
-
-```sh
-claude --plugin-dir .
-```
-
-Check the plugin before you push:
-
-```sh
-claude plugin validate .
-claude plugin test .
-npx -p typescript tsc -p .
-```
-
-`types/index.d.ts` declares the values the pane keeps in session state.
-
-To retake a screenshot, run the plugin in a tmux session, capture it with colors, and render it with headless Chrome:
-
-```sh
-tmux capture-pane -e -p -t <session> > shot.ansi
-python3 scripts/term-shot.py shot.ansi docs/screenshots/<name>.png --cols 125:170 --rows 1:30 --title "Quiz pane" --no-bg
-```
-
-`--cols` and `--rows` crop to the Quiz pane. Leave them out for the whole window.
-
-## Roadmap
-
-See [TODOS.md](TODOS.md). Next up is letting you name topics to prioritize.
+To work on the plugin, run `claude --plugin-dir .` in this folder. Check it with `claude plugin validate .` and `claude plugin test .`. The screenshots are made with `scripts/term-shot.py`.
