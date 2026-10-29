@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Api, Register, RenderChildren } from 'claude-code'
 
 import type { Format, Quiz, QuizSettings, QuizStats, QuizUsage, Verdict } from '../types'
-import { checkFocus, FOCUS_MAX, parseFocus } from './focus'
+import { applyPicks, CHECKIN_EVERY, checkLink, FOCUS_MAX, parseFocus, tallyTopic, topTopics } from './focus'
+import type { Pick, TopicPrefs } from './focus'
 import { isSecretPath, redact } from './redact'
 
 const PANE = 'session-quiz'
@@ -29,12 +30,13 @@ const EMPTY: Quiz = {
   error: '',
   source: '',
   focus: '',
+  topic: '',
 }
 const DEFAULTS: QuizSettings = { format: 'free', budget: 20000, maxQuestions: 10 }
 const NO_STATS: QuizStats = { answered: 0, solid: 0, partly: 0, notYet: 0, streak: 0, best: 0, lastDay: '' }
 
 const quiz = atom({ plugin: 'session-quiz', key: 'quiz' } as const, EMPTY, {
-  shape: 'quiz-6',
+  shape: 'quiz-7',
 })
 const usage = atom(
   { plugin: 'session-quiz', key: 'usage' } as const,
@@ -50,6 +52,12 @@ const asked = atom({ plugin: 'session-quiz', key: 'asked' } as const, [], {
   shape: 'asked-1',
 })
 // A copy of the stored stats, so the pane redraws when they change.
+const checkin = atom({ plugin: 'session-quiz', key: 'checkin' } as const, false, {
+  shape: 'checkin-1',
+})
+const picks = atom({ plugin: 'session-quiz', key: 'picks' } as const, {}, {
+  shape: 'picks-1',
+})
 const stats = atom({ plugin: 'session-quiz', key: 'stats' } as const, NO_STATS, {
   shape: 'stats-1',
 })
@@ -86,7 +94,14 @@ const SOURCE_RULE = `Optionally add "source": the one file the concept came from
 
 // Sent only when the person has named topics. It never forces one the
 // session did not cover, since a question about unseen work cannot be retrieved.
-const FOCUS_RULE = `If the session works with one of these topics, ask about it first, from a fresh angle if it was already asked, and add "focus": that topic, copied exactly from the list. If the session does not touch any of them, ask as usual and leave "focus" out. Never ask about a topic the session does not cover.`
+// The question stays on what the person is working on; a focus area only
+// changes the angle, so "data science" still applies to a day of frontend work.
+const FOCUS_RULE = `The student also wants to grow in these areas. Always ask about an idea from the session, never about a subject the session does not touch. If the session works on one of these areas directly, ask about that. Otherwise, if an idea from the session has a real, useful link to one of these areas, ask a question that carries the idea into that area: how the same idea shows up there, or what changes when it does. For example, a search box's debounce links to data science through batching a stream of events before a model sees them. Add "focus": that area, copied exactly from the list, and "bridge": a short phrase in that area's own words naming the setting the question uses (such as "batching events before a model"). The question itself must use that setting. If there is no honest link, ask as usual and leave "focus" and "bridge" out. Never force a link.`
+
+// Every question names its concept, so the check-in can show what came up.
+const TOPIC_RULE = `Also add "topic": the concept the question is about, in 2 to 4 plain words (such as "debouncing input").`
+
+const NO_PREFS: TopicPrefs = { more: [], less: [] }
 
 const GRADE_SYSTEM = `You are a kind, exact professor giving feedback on a student's short answer to a review question.
 Open with one verdict word: "Solid.", "Partly." or "Not yet."
@@ -239,6 +254,28 @@ const savedFocus = async ($: Api): Promise<string[]> => {
   return Array.isArray(saved) ? saved.filter((t): t is string => typeof t === 'string') : []
 }
 
+const savedPrefs = async ($: Api): Promise<TopicPrefs> => ({
+  ...NO_PREFS,
+  ...((await $.store.get('topicPrefs')) as Partial<TopicPrefs> | undefined),
+})
+
+// Tallies what each answered question was about; every CHECKIN_EVERY answers
+// the pane asks whether to see more or less of those topics.
+async function noteTopic($: Api, t: QuizStats) {
+  const q: Quiz = await read($, quiz)
+  const tally = tallyTopic(((await $.store.get('topicTally')) ?? {}) as Record<string, number>, q.topic)
+  await $.store.set('topicTally', tally)
+  if (t.answered % CHECKIN_EVERY === 0 && topTopics(tally).length > 0) await update($, checkin, () => true)
+}
+
+async function saveCheckin($: Api) {
+  const chosen: Record<string, Pick> = await read($, picks)
+  await $.store.set('topicPrefs', applyPicks(await savedPrefs($), chosen))
+  await $.store.set('topicTally', {})
+  await update($, picks, () => ({}))
+  await update($, checkin, () => false)
+}
+
 const openPane = ($: Api) => $.ui.open({ id: PANE, title: 'Quiz' })
 
 async function askQuestion($: Api) {
@@ -262,13 +299,19 @@ async function askQuestion($: Api) {
   const previous: string[] = await read($, asked)
   const move = MOVES[previous.length % MOVES.length]
   const topics = await savedFocus($)
-  const focusField = topics.length > 0 ? ', "focus": "..."' : ''
+  const focusField = topics.length > 0 ? ', "focus": "...", "bridge": "..."' : ''
   const shape =
     format === 'choice'
-      ? `${CHOICE_RULES}\n${SOURCE_RULE}\nReply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "..."${focusField}}`
-      : `${SOURCE_RULE}\nReply as {"question": "...", "source": "..."${focusField}}`
+      ? `${CHOICE_RULES}\n${SOURCE_RULE}\n${TOPIC_RULE}\nReply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "...", "topic": "..."${focusField}}`
+      : `${SOURCE_RULE}\n${TOPIC_RULE}\nReply as {"question": "...", "source": "...", "topic": "..."${focusField}}`
+  const prefs = await savedPrefs($)
+  const steer = [
+    prefs.more.length > 0 ? `The student asked for more questions about: ${prefs.more.join(', ')}.` : '',
+    prefs.less.length > 0 ? `The student asked for fewer questions about: ${prefs.less.join(', ')}. Pick another idea when the session offers one.` : '',
+  ].filter(Boolean).join('\n')
   const focus =
-    topics.length > 0 ? `Topics the student wants to get better at:\n${topics.join('\n')}\n${FOCUS_RULE}\n\n` : ''
+    (topics.length > 0 ? `Areas the student wants to grow in:\n${topics.join('\n')}\n${FOCUS_RULE}\n\n` : '') +
+    (steer !== '' ? `${steer}\n\n` : '')
   const prompt = `Recent session:\n<session>\n${context}\n</session>\n\nAlready asked (pick a different concept or angle):\n${previous.slice(-10).join('\n') || '(none)'}\n\nTeaching move for this question: ${move}\n\n${focus}${shape}`
 
   const r = await complete($, {
@@ -302,7 +345,8 @@ async function askQuestion($: Api) {
     correct: isChoice ? order.indexOf(0) : -1,
     explanation: typeof data?.explanation === 'string' ? data.explanation : '',
     source: checkSource(data?.source, session),
-    focus: checkFocus(data?.focus, topics),
+    focus: checkLink(data?.focus, data?.bridge, question, topics),
+    topic: typeof data?.topic === 'string' ? data.topic : '',
   }))
   $.ui.status('A quiz question is waiting')
   // Takes the keyboard only over an empty prompt, so it never interrupts typing.
@@ -331,6 +375,7 @@ async function gradeFree($: Api, answer: string) {
   }))
   // An ungraded answer still counts toward the streak, with no verdict.
   const t = await recordAnswer($, r.isAnswered ? verdictOf(r.text) : undefined)
+  await noteTopic($, t)
   $.ui.status(stop ?? `Quiz: ${streakText(t)}`)
 }
 
@@ -355,6 +400,7 @@ async function submitChoice($: Api) {
   // Unset when the press found no question to answer, so a repeat press never counts twice.
   if (verdict === undefined) return
   const t = await recordAnswer($, verdict)
+  await noteTopic($, t)
   $.ui.status(`Quiz: ${streakText(t)}`)
 }
 
@@ -394,7 +440,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'quiz',
-      description: 'Open the Quiz pane. Args: now | stats | focus <topics> | free | choice | budget <tokens> | max <questions> | reset',
+      description: 'Open the Quiz pane. Args: now | stats | focus <topics> | topics | free | choice | budget <tokens> | max <questions> | reset',
     })
     const saved = await $.store.get('settings')
     if (saved !== undefined) await update($, settings, () => ({ ...DEFAULTS, ...(saved as Partial<QuizSettings>) }))
@@ -453,6 +499,10 @@ export const register: Register = on => {
     if (word === 'stats') {
       const t: QuizStats = { ...NO_STATS, ...((await $.store.get('stats')) as Partial<QuizStats> | undefined) }
       return { text: statsSummary(t) }
+    }
+    if (word === 'topics') {
+      await update($, checkin, () => true)
+      return { text: 'Topic check-in opened in the pane.' }
     }
     if (word === 'focus') {
       const rest = e.args.trim().slice(word.length).trim()
@@ -538,6 +588,46 @@ export const register: Register = on => {
       </Box>
     )
 
+    const isCheckin: boolean = await read($, checkin)
+    if (isCheckin && !isBusy) {
+      const tally = ((await $.store.get('topicTally')) ?? {}) as Record<string, number>
+      const chosen: Record<string, Pick> = await read($, picks)
+      const choose = (topic: string, pick: Pick) =>
+        void update($, picks, cur => {
+          const next = { ...cur }
+          // Pressing the same choice again clears it.
+          if (next[topic] === pick) delete next[topic]
+          else next[topic] = pick
+          return next
+        })
+      return frame(
+        <Text bold>Topic check-in</Text>,
+        <Text dimColor>These came up most since the last check-in. Want more or less of them?</Text>,
+        topTopics(tally).length === 0 && <Text dimColor>No topics yet. Answer a few questions first.</Text>,
+        <Box flexDirection="column" marginTop={1}>
+          {topTopics(tally).map((topic, i) => (
+            <Box key={`topic-${i}`} gap={2}>
+              <Button key={`more-${i}`} plain onPress={() => choose(topic, 'more')}>
+                {chosen[topic] === 'more' ? <Text color={ACCENT} bold>[ More ]</Text> : <Text>[ More ]</Text>}
+              </Button>
+              <Button key={`less-${i}`} plain onPress={() => choose(topic, 'less')}>
+                {chosen[topic] === 'less' ? <Text color={ACCENT} bold>[ Less ]</Text> : <Text>[ Less ]</Text>}
+              </Button>
+              <Text>{topic}</Text>
+            </Box>
+          ))}
+        </Box>,
+        <Box marginTop={1} gap={2}>
+          <Button key="checkin-save" hotkey="v" variant="primary" onPress={() => void saveCheckin($)}>
+            Save
+          </Button>
+          <Button key="checkin-later" onPress={() => void update($, checkin, () => false)}>
+            Not now
+          </Button>
+        </Box>,
+      )
+    }
+
     if (q.status === 'idle') {
       return frame(
         <Text dimColor>A question will show up here while Claude works.</Text>,
@@ -555,7 +645,7 @@ export const register: Register = on => {
     return frame(
       <Text bold>{q.question}</Text>,
       q.source !== '' && <Text dimColor>From: {q.source}</Text>,
-      q.focus !== '' && <Text dimColor>Focus: {q.focus}</Text>,
+      q.focus !== '' && <Text dimColor>Linked to: {q.focus}</Text>,
       q.status === 'asking' && q.format === 'choice' && (
         <Box flexDirection="column" marginTop={1}>
           {q.choices.map((c, i) => (

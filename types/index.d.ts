@@ -15,6 +15,7 @@ export type Quiz = {
   error: string
   source: string
   focus: string
+  topic: string
 }
 
 export type QuizUsage = { tokens: number; questions: number }
@@ -40,6 +41,8 @@ declare module 'claude-code' {
       settings: Shaped<QuizSettings>
       asked: Shaped<string[]>
       stats: Shaped<QuizStats>
+      checkin: Shaped<boolean>
+      picks: Shaped<Record<string, 'more' | 'less'>>
     }
   }
 }

@@ -50,10 +50,10 @@ Press **s** to skip a question and **f** to switch between free text and multipl
 Name up to 5 topics you want to get better at, separated by commas:
 
 ```text
-/quiz focus SQL indexes, React effects
+/quiz focus data science, distributed systems
 ```
 
-When the session works with one of them, the next question asks about that topic first, and a dim line such as `Focus: SQL indexes` shows under the question. When the session touches none of them, the question is chosen as usual. The plugin never asks about a topic the session did not cover. Run `/quiz focus` to see your topics and `/quiz focus clear` to remove them. Topics are saved across sessions.
+These are areas you want to grow in, and they do not need to match what you are working on. The question always stays on an idea from your session, but when that idea has a real link to one of your areas, the question carries it there. For example, while you build a search box with a `data science` focus, you might get: "Debouncing waits for a pause before acting. Where does the same idea show up when you batch a stream of events before a model sees them?" A dim line such as `Linked to: data science` shows under the question. When the session works on an area directly, the question asks about it. When there is no honest link, the question is chosen as usual. Run `/quiz focus` to see your topics and `/quiz focus clear` to remove them. Topics are saved across sessions.
 
 The first prompt of a session gives no question, because there is nothing to ask about yet.
 
@@ -86,7 +86,7 @@ Tool calls on secrets files (`.env`, `.env.*`, `*.pem`, `id_rsa*`, `credentials*
 | `/quiz` | Open the pane and show this session's usage. |
 | `/quiz now` | Ask a question now. |
 | `/quiz stats` | Show your answers, Solid, Partly, and Not yet counts, and your current and best streak. |
-| `/quiz focus SQL indexes, React effects` | Ask about these topics first when the session touches them. At most 5. |
+| `/quiz focus data science, distributed systems` | Link questions about your work to these areas when there is a real connection. At most 5. |
 | `/quiz focus` | List your focus topics. |
 | `/quiz focus clear` | Remove all focus topics. |
 | `/quiz free` | Use free-text questions. |

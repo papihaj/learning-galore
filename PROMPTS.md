@@ -57,10 +57,10 @@ The session text holds each message's text, cut to 600 characters, and one line 
 ```text
 Topics the student wants to get better at:
 {your focus topics, one per line}
-If the session works with one of these topics, ask about it first, from a fresh angle if it was already asked, and add "focus": that topic, copied exactly from the list. If the session does not touch any of them, ask as usual and leave "focus" out. Never ask about a topic the session does not cover.
+The student also wants to grow in these areas. Always ask about an idea from the session, never about a subject the session does not touch. If the session works on one of these areas directly, ask about that. Otherwise, if an idea from the session has a real, useful link to one of these areas, ask a question that carries the idea into that area: how the same idea shows up there, or what changes when it does. For example, a search box's debounce links to data science through batching a stream of events before a model sees them. Add "focus": that area, copied exactly from the list. If there is no honest link, ask as usual and leave "focus" out. Never force a link.
 ```
 
-When it is sent, each format's reply shape below also ends with `, "focus": "..."`. The plugin shows the focus line only if the topic matches one you saved, ignoring case. Otherwise it shows nothing.
+When it is sent, each format's reply shape below also ends with `, "focus": "..."`. The plugin shows the `Linked to:` line only if the area matches one you saved, ignoring case. Otherwise it shows nothing.
 
 **Format rules.** Both formats start with the source rule (`SOURCE_RULE`):
 
