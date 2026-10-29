@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Api, Register, RenderChildren } from 'claude-code'
 
-import type { Format, Quiz, QuizSettings, QuizStats, QuizUsage, TokenLog, Verdict } from '../types'
+import type { Format, LogRecord, Quiz, QuizSettings, QuizStats, QuizUsage, TokenLog, Verdict } from '../types'
+import { appendRecord, buildRecord, toAnki, toMarkdown } from './log'
 import { isSecretPath, redact } from './redact'
 
 const PANE = 'session-quiz'
@@ -222,6 +223,40 @@ async function recordAnswer($: Api, verdict: Verdict | undefined): Promise<QuizS
   return next
 }
 
+// The log lives in files on disk, not in the plugin's store: the records, a
+// Markdown review rewritten after every answer, and an Anki import file in
+// its own folder. $.fs writes an absolute path as given; ~ is not expanded.
+async function learningDir($: Api): Promise<string> {
+  const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
+  return home === undefined ? 'learning' : `${home}/learning`
+}
+
+async function logAnswer($: Api, q: Quiz, verdict: Verdict | undefined) {
+  const dir = await learningDir($)
+  const data = `${dir}/session-quiz/answers.json`
+  let log: LogRecord[] = []
+  try {
+    const text = await $.fs.read(data)
+    if (typeof text === 'string') log = JSON.parse(text) as LogRecord[]
+  } catch {
+    // No file yet: the first answer starts it.
+  }
+  // An earlier version kept the log in the store; move it out once.
+  const old = await $.store.get('log')
+  if (Array.isArray(old)) {
+    log = [...(old as LogRecord[]), ...log]
+    await $.store.delete('log')
+  }
+  log = appendRecord(log, buildRecord(q, verdict, dayKey(new Date())))
+  try {
+    await $.fs.write(data, JSON.stringify(log))
+    await $.fs.write(`${dir}/session-quiz/review.md`, toMarkdown(log))
+    await $.fs.write(`${dir}/anki/session-quiz.tsv`, toAnki(log))
+  } catch {
+    // A refused write must never break the quiz itself.
+  }
+}
+
 function statsSummary(t: QuizStats): string {
   if (t.answered === 0) return 'No quiz answers yet. Answer a question to start a streak.'
   const pct = (n: number) => `${Math.round((n / t.answered) * 100)}%`
@@ -311,7 +346,9 @@ async function gradeFree($: Api, answer: string) {
     feedback: r.isAnswered ? r.text.trim() : 'Could not grade this one, but thanks for answering.',
   }))
   // An ungraded answer still counts toward the streak, with no verdict.
-  await recordAnswer($, r.isAnswered ? verdictOf(r.text) : undefined)
+  const verdict = r.isAnswered ? verdictOf(r.text) : undefined
+  await recordAnswer($, verdict)
+  await logAnswer($, await read($, quiz), verdict)
   $.ui.status(undefined)
 }
 
@@ -320,7 +357,7 @@ const selectChoice = ($: Api, index: number) =>
 
 async function submitChoice($: Api) {
   let verdict: Verdict | undefined
-  await update($, quiz, (cur): Quiz => {
+  const done = await update($, quiz, (cur): Quiz => {
     const index = cur.selected
     if (cur.status !== 'asking' || index < 0) return cur
     const isRight = index === cur.correct
@@ -336,6 +373,7 @@ async function submitChoice($: Api) {
   // Unset when the press found no question to answer, so a repeat press never counts twice.
   if (verdict === undefined) return
   await recordAnswer($, verdict)
+  await logAnswer($, done, verdict)
   $.ui.status(undefined)
 }
 
@@ -370,7 +408,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'quiz',
-      description: 'Open the Quiz pane. Args: now | settings | stats | free | choice',
+      description: 'Open the Quiz pane. Args: now | settings | stats | log | free | choice',
     })
     const saved = await $.store.get('settings')
     if (saved !== undefined) await update($, settings, () => ({ ...DEFAULTS, ...(saved as Partial<QuizSettings>) }))
@@ -425,6 +463,10 @@ export const register: Register = on => {
     if (word === 'stats') {
       const t: QuizStats = { ...NO_STATS, ...((await $.store.get('stats')) as Partial<QuizStats> | undefined) }
       return { text: statsSummary(t) }
+    }
+    if (word === 'log') {
+      const dir = await learningDir($)
+      return { text: `Your review is in ${dir}/session-quiz/review.md. Anki cards are in ${dir}/anki/session-quiz.tsv; import that file in Anki.` }
     }
     if (word === 'now') {
       void askQuestion($)
