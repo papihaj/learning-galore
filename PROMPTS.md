@@ -36,6 +36,8 @@ Already asked (pick a different concept or angle):
 
 Teaching move for this question: {one move from the list below}
 
+Difficulty, whatever the move: {one level from the list below}
+
 {the format rules below}
 ```
 
@@ -49,6 +51,12 @@ The session text holds each message's text, cut to 600 characters, and one line 
 4. Compare: ask how this approach differs from a close alternative, and when each wins.
 5. Misconception: state a plausible but wrong belief about the idea and ask what is wrong with it.
 6. Teach it: ask the student to explain the idea to a junior developer in two sentences.
+
+**Levels** (`LEVELS`). The move picks the kind of question, and the level picks how hard it is. The session starts at a level set by your last 5 answers across sessions: level 3 if 4 or more were Solid, level 1 if 4 or more were misses, and level 2 otherwise. Two Solid answers in a row step it up, and two misses in a row step it down. A miss is a Partly or a Not yet. `/quiz level` pins it.
+
+1. Level 1 of 3: explain a core idea in a familiar setting, close to the session.
+2. Level 2 of 3: apply the idea to a new, concrete scenario.
+3. Level 3 of 3: analyze a trade-off, edge case, or failure mode an experienced engineer would weigh.
 
 **Format rules.** Both formats start with the source rule (`SOURCE_RULE`):
 
@@ -104,12 +112,12 @@ After a miss (a wrong pick, or a grade that opens with "Partly." or "Not yet."),
 **System prompt** (`LESSON_SYSTEM`):
 
 ```text
-You are a kind, exact professor. Your student just missed part of a review question, and asked you to go deeper. You write a short micro-lesson on exactly the gap their answer shows, so they get it right next time.
-First, the core idea in plain words: what is true, and why.
-Then one concrete example that makes it click. Use a tiny code snippet only if it truly helps, at most 5 lines, on its own lines with no fences.
-End with the one thing to remember, in one plain sentence that starts with "Remember:".
-Do not repeat the question or the feedback. Do not ask the student anything: they cannot reply.
-At most 120 words in all. Plain text, no headings, no lists, no markdown.
+You are a kind, exact professor. Your student just missed part of a review question, and asked you to go deeper. You write a short micro-lesson on exactly the gap their answer shows, so they get it right next time. It shows in a small pane, so it must be at most 90 words; three short paragraphs.
+First, the core idea in plain words: what is true, and why. At most two short sentences.
+Then one concrete example that makes it click. At most two short sentences, or a tiny code snippet of at most 3 lines, on its own lines with no fences.
+Last, the one thing to remember, in one short sentence that starts with "Remember:".
+Keep each sentence under 18 words. Do not repeat the question, the feedback, or the right answer. Do not ask the student anything: they cannot reply.
+Plain text, no headings, no lists, no markdown. At most 90 words in all.
 ```
 
 **User message:**
@@ -124,7 +132,7 @@ Right answer: {multiple choice only: the right choice}
 Feedback they got: {the feedback}
 ```
 
-Longest reply: 350 tokens. If the token budget is used up, the pane shows the limit message instead of calling Haiku.
+Longest reply: 250 tokens. If the token budget is used up, the pane shows the limit message instead of calling Haiku.
 
 ## The teaching ideas behind the prompts
 
@@ -132,6 +140,7 @@ Longest reply: 350 tokens. If the token budget is used up, the pane shows the li
 - **Elaborative questions.** "Why" and "how" questions make you connect a fact to what you already know.
 - **Transfer.** Using an idea in a new setting shows you understand it, not just that you remember the session.
 - **Bloom's levels.** The teaching moves go from explaining, to predicting and applying, to comparing and judging.
+- **Desirable difficulty.** Practice works best when it is hard enough to take effort but easy enough to get mostly right. The level rises after two Solid answers and falls after two misses to stay in that range.
 - **Spreading practice across topics.** The "already asked" list pushes each question to a different concept.
 - **Misconceptions as wrong choices.** Wrong choices come from real misunderstandings, so a wrong pick shows what to fix.
 - **Specific feedback.** The grade names the exact gap and ends with the key idea.

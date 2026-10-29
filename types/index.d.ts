@@ -18,7 +18,10 @@ export type Quiz = {
 
 export type QuizUsage = { tokens: number; questions: number }
 
-export type QuizSettings = { format: Format; budget: number; maxQuestions: number }
+export type Level = 1 | 2 | 3
+
+// `auto` lets the level step with the answers; a number pins it.
+export type QuizSettings = { format: Format; budget: number; maxQuestions: number; level: Level | 'auto' }
 
 export type Verdict = 'solid' | 'partly' | 'notYet'
 
@@ -31,6 +34,10 @@ export type QuizStats = Record<Verdict, number> & {
   lastDay: string
 }
 
+// This session's level. `run` is the Solid answers in a row, or the misses in
+// a row as a negative number. Null until the session sets it.
+export type Difficulty = { level: Level; run: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'session-quiz': {
@@ -39,6 +46,7 @@ declare module 'claude-code' {
       settings: Shaped<QuizSettings>
       asked: Shaped<string[]>
       stats: Shaped<QuizStats>
+      difficulty: Shaped<Difficulty | null>
     }
   }
 }

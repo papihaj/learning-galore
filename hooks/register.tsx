@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Api, Register, RenderChildren } from 'claude-code'
 
-import type { Format, Quiz, QuizSettings, QuizStats, QuizUsage, Verdict } from '../types'
+import type { Difficulty, Format, Level, Quiz, QuizSettings, QuizStats, QuizUsage, Verdict } from '../types'
+import { startLevel, stepLevel } from './level'
 import { isSecretPath, redact } from './redact'
 
 const PANE = 'session-quiz'
@@ -9,7 +10,7 @@ const MODEL = 'haiku'
 // Caps on each call, so one question never costs much.
 const ASK_MAX_TOKENS = 400
 const GRADE_MAX_TOKENS = 300
-const LESSON_MAX_TOKENS = 350
+const LESSON_MAX_TOKENS = 250
 const CONTEXT_CHARS = 6000
 const ANSWER_CHARS = 280
 
@@ -28,7 +29,7 @@ const EMPTY: Quiz = {
   error: '',
   source: '',
 }
-const DEFAULTS: QuizSettings = { format: 'free', budget: 20000, maxQuestions: 10 }
+const DEFAULTS: QuizSettings = { format: 'free', budget: 20000, maxQuestions: 10, level: 'auto' }
 const NO_STATS: QuizStats = { answered: 0, solid: 0, partly: 0, notYet: 0, streak: 0, best: 0, lastDay: '' }
 
 const quiz = atom({ plugin: 'session-quiz', key: 'quiz' } as const, EMPTY, {
@@ -42,7 +43,7 @@ const usage = atom(
 const settings = atom(
   { plugin: 'session-quiz', key: 'settings' } as const,
   DEFAULTS,
-  { shape: 'settings-1' },
+  { shape: 'settings-2' },
 )
 const asked = atom({ plugin: 'session-quiz', key: 'asked' } as const, [], {
   shape: 'asked-1',
@@ -50,6 +51,9 @@ const asked = atom({ plugin: 'session-quiz', key: 'asked' } as const, [], {
 // A copy of the stored stats, so the pane redraws when they change.
 const stats = atom({ plugin: 'session-quiz', key: 'stats' } as const, NO_STATS, {
   shape: 'stats-1',
+})
+const difficulty = atom({ plugin: 'session-quiz', key: 'difficulty' } as const, null, {
+  shape: 'difficulty-1',
 })
 
 // How a good lecturer would review the session: retrieval practice, rotated
@@ -77,6 +81,13 @@ const MOVES = [
   'Teach it: ask the student to explain the idea to a junior developer in two sentences.',
 ]
 
+// The move picks the kind of question; the level picks how hard it is.
+const LEVELS: Record<Level, string> = {
+  1: 'Level 1 of 3: explain a core idea in a familiar setting, close to the session.',
+  2: 'Level 2 of 3: apply the idea to a new, concrete scenario.',
+  3: 'Level 3 of 3: analyze a trade-off, edge case, or failure mode an experienced engineer would weigh.',
+}
+
 const CHOICE_RULES = `For multiple choice: four options; the right one is listed first (it is shuffled later). Each wrong option is a misconception a real student holds, plausible to someone who half understands. All four have similar length, detail, and grammar, so length or tone never gives the answer away. No "all of the above" or "none of the above". The explanation says why the right one is right and what the most tempting wrong one gets wrong, in one or two sentences.`
 
 // Asked in the same call as the question, so a source costs no extra request.
@@ -90,12 +101,12 @@ At most 60 words in all. Plain text, no headings, no lists.`
 
 // Asked for only after a miss, so the lesson aims at the one gap the
 // feedback named instead of re-teaching the whole topic.
-const LESSON_SYSTEM = `You are a kind, exact professor. Your student just missed part of a review question, and asked you to go deeper. You write a short micro-lesson on exactly the gap their answer shows, so they get it right next time.
-First, the core idea in plain words: what is true, and why.
-Then one concrete example that makes it click. Use a tiny code snippet only if it truly helps, at most 5 lines, on its own lines with no fences.
-End with the one thing to remember, in one plain sentence that starts with "Remember:".
-Do not repeat the question or the feedback. Do not ask the student anything: they cannot reply.
-At most 120 words in all. Plain text, no headings, no lists, no markdown.`
+const LESSON_SYSTEM = `You are a kind, exact professor. Your student just missed part of a review question, and asked you to go deeper. You write a short micro-lesson on exactly the gap their answer shows, so they get it right next time. It shows in a small pane, so it must be at most 90 words; three short paragraphs.
+First, the core idea in plain words: what is true, and why. At most two short sentences.
+Then one concrete example that makes it click. At most two short sentences, or a tiny code snippet of at most 3 lines, on its own lines with no fences.
+Last, the one thing to remember, in one short sentence that starts with "Remember:".
+Keep each sentence under 18 words. Do not repeat the question, the feedback, or the right answer. Do not ask the student anything: they cannot reply.
+Plain text, no headings, no lists, no markdown. At most 90 words in all.`
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s)
 
@@ -213,7 +224,20 @@ async function recordAnswer($: Api, verdict: Verdict | undefined): Promise<QuizS
   }
   await $.store.set('stats', next)
   await update($, stats, () => next)
+  if (verdict !== undefined) {
+    const recent = ((await $.store.get('recent')) as Verdict[] | undefined) ?? []
+    await $.store.set('recent', [...recent, verdict].slice(-5))
+    // A pinned level holds still, so unpinning resumes where the answers left it.
+    const s: QuizSettings = await read($, settings)
+    if (s.level === 'auto') await update($, difficulty, d => stepLevel(d ?? { level: 2, run: 0 }, verdict))
+  }
   return next
+}
+
+async function currentLevel($: Api): Promise<Level> {
+  const s: QuizSettings = await read($, settings)
+  const d: Difficulty | null = await read($, difficulty)
+  return s.level === 'auto' ? (d?.level ?? 2) : s.level
 }
 
 const streakText = (t: QuizStats) => `${liveStreak(t)}-day streak`
@@ -250,11 +274,12 @@ async function askQuestion($: Api) {
 
   const previous: string[] = await read($, asked)
   const move = MOVES[previous.length % MOVES.length]
+  const level = await currentLevel($)
   const shape =
     format === 'choice'
       ? `${CHOICE_RULES}\n${SOURCE_RULE}\nReply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "..."}`
       : `${SOURCE_RULE}\nReply as {"question": "...", "source": "..."}`
-  const prompt = `Recent session:\n<session>\n${context}\n</session>\n\nAlready asked (pick a different concept or angle):\n${previous.slice(-10).join('\n') || '(none)'}\n\nTeaching move for this question: ${move}\n\n${shape}`
+  const prompt = `Recent session:\n<session>\n${context}\n</session>\n\nAlready asked (pick a different concept or angle):\n${previous.slice(-10).join('\n') || '(none)'}\n\nTeaching move for this question: ${move}\n\nDifficulty, whatever the move: ${LEVELS[level]}\n\n${shape}`
 
   const r = await complete($, {
     model: MODEL,
@@ -378,12 +403,15 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'quiz',
-      description: 'Open the Quiz pane. Args: now | stats | free | choice | budget <tokens> | max <questions> | reset',
+      description: 'Open the Quiz pane. Args: now | stats | free | choice | level 1|2|3|auto | budget <tokens> | max <questions> | reset',
     })
     const saved = await $.store.get('settings')
     if (saved !== undefined) await update($, settings, () => ({ ...DEFAULTS, ...(saved as Partial<QuizSettings>) }))
     const savedStats = await $.store.get('stats')
     if (savedStats !== undefined) await update($, stats, () => ({ ...NO_STATS, ...(savedStats as Partial<QuizStats>) }))
+    // Set once per session; a reload keeps the level the answers reached.
+    const recent = ((await $.store.get('recent')) as Verdict[] | undefined) ?? []
+    await update($, difficulty, d => d ?? { level: startLevel(recent), run: 0 })
     $.ui.status(undefined)
     // A reload drops any model call in flight; state survives it, so settle
     // whatever that call left waiting.
@@ -424,6 +452,12 @@ export const register: Register = on => {
       await save(s => ({ ...s, format: word as Format }))
       return { text: `Quiz format: ${word === 'free' ? 'free text' : 'multiple choice'}.` }
     }
+    if (word === 'level') {
+      const pin = value === 'auto' ? 'auto' : Number(value)
+      if (pin !== 'auto' && pin !== 1 && pin !== 2 && pin !== 3) return { text: 'Usage: /quiz level 1|2|3|auto' }
+      await save(cur => ({ ...cur, level: pin }))
+      return { text: pin === 'auto' ? `Quiz level: auto, now ${await currentLevel($)} of 3.` : `Quiz level pinned at ${pin} of 3.` }
+    }
     if (word === 'budget' || word === 'max') {
       const n = Number(value)
       if (!Number.isInteger(n) || n <= 0) return { text: `Usage: /quiz ${word} <positive number>` }
@@ -462,6 +496,8 @@ export const register: Register = on => {
     const s: QuizSettings = await read($, settings)
     const t: QuizStats = await read($, stats)
     const streak = liveStreak(t)
+    // No-break spaces, so a narrow pane never wraps the level across lines.
+    const levelText = `Level ${await currentLevel($)} of 3${s.level === 'auto' ? '' : ', pinned'}`.replace(/ /g, '\u00a0')
 
     // While a model call runs the pane holds no control, so the Enter that
     // submitted an answer has nothing to land on.
@@ -489,7 +525,7 @@ export const register: Register = on => {
           </Button>
         )}
         <Text dimColor>
-          {u.questions}/{s.maxQuestions} questions this session
+          {u.questions}/{s.maxQuestions} questions this session · {levelText}
           {e.props.isFocused ? '' : ' · ctrl+x tab to answer here'}
         </Text>
       </Box>
