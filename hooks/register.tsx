@@ -3,7 +3,7 @@ import type { EngineInterface as Api, Register } from 'claude-code'
 
 import type { Format, Note, Quiz, Verdict } from '../types'
 import { checkLink, parseFocus } from './focus'
-import { answerOf, flow } from './answer'
+import { answerOf, flow, spokenChoice } from './answer'
 import { appendNote, buildNote, toMarkdown } from './notes'
 import { isSecretPath, redact } from './redact'
 
@@ -36,17 +36,58 @@ const format = atom({ plugin: 'session-quiz', key: 'format' } as const, 'free', 
 const asked = atom({ plugin: 'session-quiz', key: 'asked' } as const, [], { shape: 'asked-1' })
 const showSettings = atom({ plugin: 'session-quiz', key: 'showSettings' } as const, false, { shape: 'show-settings-1' })
 const sessionTokens = atom({ plugin: 'session-quiz', key: 'sessionTokens' } as const, 0, { shape: 'session-tokens-1' })
-const petStep = atom({ plugin: 'session-quiz', key: 'petStep' } as const, 0, { shape: 'pet-step-1' })
+const listening = atom({ plugin: 'session-quiz', key: 'listening' } as const, false, { shape: 'listening-1' })
 
-const CAT_TOP = ' /\\_/\\ '
-const catBody = (right: boolean, wag: boolean) =>
-  right ? `${wag ? '~' : '-'}( o.o )` : `( o.o )${wag ? '~' : '-'}`
-const CAT_WIDTH = 8
+const ART = [
+  [
+    String.raw`  _______ `,
+    String.raw` |=======|`,
+    String.raw` |_______|`,
+    String.raw` |=======|`,
+    String.raw` |_______|`,
+  ],
+  [
+    String.raw`  __   __  `,
+    String.raw` /  \ /  \ `,
+    String.raw`| ~~ | ~~ |`,
+    String.raw`| ~~ | ~~ |`,
+    String.raw` \__/ \__/ `,
+  ],
+  [
+    String.raw`   .-.   `,
+    String.raw`  ( * )  `,
+    String.raw`   \ /   `,
+    String.raw`   |=|   `,
+    String.raw`   '-'   `,
+  ],
+  [
+    String.raw`    _____    `,
+    String.raw`  _/_____\_  `,
+    String.raw`    |   |    `,
+    String.raw`     \_/     `,
+    String.raw`             `,
+  ],
+  [
+    String.raw`   ( (    `,
+    String.raw`    ) )   `,
+    String.raw`  .-----. `,
+    String.raw`  |     |]`,
+    String.raw`  '-----' `,
+  ],
+]
+const ART_GAP = 3
 
-function petAt(step: number, track: number): { x: number; right: boolean } {
-  if (track <= 0) return { x: 0, right: true }
-  const p = step % (2 * track)
-  return p < track ? { x: p, right: true } : { x: 2 * track - p, right: false }
+// As many study doodles as fit across the pane, in a fixed order so nothing moves.
+function artFor(width: number): string[][] {
+  const shown: string[][] = []
+  let used = 0
+  for (const piece of ART) {
+    const w = piece[0]?.length ?? 0
+    if (used + w > width) break
+    shown.push(piece)
+    used += w + ART_GAP
+  }
+  return shown
 }
 
 const BUSY = { thinking: 'idle', grading: 'asking', teaching: 'answered' } as const
@@ -201,6 +242,7 @@ async function askQuestion($: Api) {
   }
   const fmt: Format = await read($, format)
   await update($, quiz, (): Quiz => ({ ...EMPTY, status: 'thinking', format: fmt }))
+  await update($, listening, () => false)
 
   const previous: string[] = await read($, asked)
   const topics = await savedFocus($)
@@ -296,14 +338,37 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'quiz',
-      description: 'Open the Quiz pane. Args: now | focus <areas> | notes | limit <tokens>|off | settings | free | choice',
+      description: 'Open the Quiz pane. Args: now | speak | focus <areas> | notes | limit <tokens>|off | settings | free | choice',
     })
     const saved = await $.store.get('format')
     if (saved === 'free' || saved === 'choice') await update($, format, () => saved)
     await update($, quiz, (q): Quiz => (isBusy(q.status) ? { ...q, status: BUSY[q.status] } : q))
-    $.clock.every(450, () => void update($, petStep, n => n + 1))
+    await update($, listening, () => false)
     void openPane($)
     return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    if (e.command !== undefined || e.isMeta || !(await read($, listening))) return next(e)
+    const q: Quiz = await read($, quiz)
+    const spoken = e.text.trim()
+    if (q.status !== 'asking') {
+      await update($, listening, () => false)
+      return next(e)
+    }
+    if (spoken === '') return { drop: 'Nothing heard. Speak your answer again, or press v in the Quiz pane to stop.' }
+    if (q.format === 'choice') {
+      const i = spokenChoice(spoken, q.choices)
+      if (i < 0) return { drop: `Not sure which choice you meant by "${clip(spoken, 60)}". Say its number, like "two".` }
+      await update($, listening, () => false)
+      await update($, quiz, (cur): Quiz => ({ ...cur, selected: i }))
+      void submitChoice($)
+    } else {
+      await update($, listening, () => false)
+      void gradeFree($, spoken.slice(0, ANSWER_CHARS))
+    }
+    void openPane($)
+    return { drop: 'Sent to the Quiz as your spoken answer.' }
   })
 
   on('turn.start', async ($, e, next) => {
@@ -335,6 +400,11 @@ export const register: Register = on => {
       return { text: 'Quiz settings opened in the pane.' }
     }
     if (word === 'notes') return { text: `Your notes are in ${await notesDir($)}/notes.md.` }
+    if (word === 'speak') {
+      if ((await read($, quiz)).status !== 'asking') return { text: 'No question is waiting. Run /quiz now for one.' }
+      await update($, listening, () => true)
+      return { text: 'Listening: dictate your answer in the prompt box and press Enter.' }
+    }
     if (word === 'now') {
       void askQuestion($)
       return { text: 'Making a question.' }
@@ -363,13 +433,25 @@ export const register: Register = on => {
     const typing = asking && q.format === 'free' && Input !== undefined
     const width = Math.max(0, e.props.bodyColumns - 4)
     const rule = <Text dimColor>{'─'.repeat(width)}</Text>
-    const room = Math.max(10, width - 8)
-    const step: number = await read($, petStep)
-    const pet = petAt(step, width - CAT_WIDTH - 1)
+    const room = Math.max(10, width - 6)
+    const isListening = asking && (await read($, listening))
+    const art = artFor(width)
+    const fill = e.props.placement === 'dock' ? e.props.scroll.bodyRows : undefined
 
     return (
-      <Box flexDirection="column" paddingX={2} paddingY={1}>
-        <Box flexDirection="column" marginBottom={1}>
+      <Box flexDirection="column" paddingX={2} paddingY={1} width={e.props.bodyColumns} minHeight={fill}>
+        {art.length > 0 && (
+          <Box justifyContent="space-between" width={width}>
+            {art.map((piece, i) => (
+              <Box key={`art-${i}`} flexDirection="column">
+                {piece.map((line, j) => (
+                  <Text key={`art-${i}-${j}`} color="claude" dimColor>{line}</Text>
+                ))}
+              </Box>
+            ))}
+          </Box>
+        )}
+        <Box flexDirection="column" marginBottom={1} width={width}>
           <Box justifyContent="space-between">
             <Text bold color="claude">Quiz</Text>
             <Text dimColor>{isSettings ? 'settings' : 'while Claude works'}</Text>
@@ -400,8 +482,17 @@ export const register: Register = on => {
                 ))}
               </Box>
             )}
-            {asking && q.format === 'free' && Input === undefined && <Text dimColor>Free-text answers need the terminal or desktop app.</Text>}
-            {typing && Input !== undefined && (
+            {asking && q.format === 'free' && Input === undefined && !isListening && <Text dimColor>Free-text answers need the terminal or desktop app, or press v to speak one.</Text>}
+            {isListening && (
+              <Box marginTop={1} flexDirection="column" borderStyle="round" borderColor="claude" paddingX={1}>
+                <Text bold color="claude">Listening for your answer</Text>
+                <Text>
+                  Dictate it into the main prompt box (hold Space with /voice on, or tap the mic), then press Enter. It goes to the Quiz, not to Claude.
+                </Text>
+                {q.format === 'choice' && <Text dimColor>Say the choice's number, like "two", or its words.</Text>}
+              </Box>
+            )}
+            {typing && !isListening && Input !== undefined && (
               <Box marginTop={1} flexDirection="column">
                 <Text dimColor>Your answer</Text>
                 <Box borderStyle="round" borderColor="claude" paddingX={1} flexDirection="column">
@@ -462,7 +553,7 @@ export const register: Register = on => {
                 {q.status === 'idle' ? 'Ask me now' : 'Try again'}
               </Button>
             )}
-            {typing && (
+            {typing && !isListening && (
               <Button key="send" variant="primary" onPress={() => void gradeFree($, answerOf(q))}>
                 Submit
               </Button>
@@ -470,6 +561,11 @@ export const register: Register = on => {
             {asking && q.format === 'choice' && (
               <Button key="submit" hotkey="a" variant="primary" onPress={() => void submitChoice($)}>
                 Submit <Text dimColor>a</Text>
+              </Button>
+            )}
+            {asking && (
+              <Button key="speak" hotkey="v" onPress={() => void update($, listening, was => !was)}>
+                {isListening ? 'Stop listening' : 'Speak'} <Text dimColor>v</Text>
               </Button>
             )}
             {asking && (
@@ -489,6 +585,7 @@ export const register: Register = on => {
             )}
           </Box>
         )}
+        <Box flexGrow={1} />
         <Box flexDirection="column" marginTop={1}>
           {rule}
           {(isSettings || !busy) && (
@@ -508,10 +605,6 @@ export const register: Register = on => {
             </Box>
           )}
           {!e.props.isFocused && <Text dimColor>ctrl+x tab to answer here</Text>}
-        </Box>
-        <Box flexDirection="column" marginTop={1}>
-          <Text color="claude">{' '.repeat(pet.right ? pet.x + 1 : pet.x)}{CAT_TOP}</Text>
-          <Text color="claude">{' '.repeat(pet.x)}{catBody(pet.right, step % 2 === 0)}</Text>
         </Box>
       </Box>
     )
