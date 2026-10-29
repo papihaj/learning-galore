@@ -11,6 +11,7 @@ export type Quiz = {
   selected: number
   explanation: string
   answer: string
+  draft: string
   feedback: string
   verdict?: Verdict
   lesson: string

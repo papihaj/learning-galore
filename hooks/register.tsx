@@ -8,7 +8,8 @@ import { isSecretPath, redact } from './redact'
 
 const PANE = 'session-quiz'
 const CONTEXT_CHARS = 6000
-const ANSWER_CHARS = 280
+// The question prompt asks for an answer this short; the box may hold less.
+const ANSWER_CHARS = 40
 
 const EMPTY: Quiz = {
   status: 'idle',
@@ -19,6 +20,7 @@ const EMPTY: Quiz = {
   selected: -1,
   explanation: '',
   answer: '',
+  draft: '',
   feedback: '',
   lesson: '',
   error: '',
@@ -59,7 +61,7 @@ const ASK_SYSTEM = `You are a professor who teaches software engineering well. Y
 How you teach:
 - Build the question around one key concept behind what the developer is building: an idea from systems design, architecture or engineering practice that they should understand while they build, such as debounce, idempotency, a composite index, cache invalidation or a message queue. Ask what it means and why it matters in what they are building, in their own words.
 - Ask only about the big, central ideas of the session: the concepts a senior engineer would want the student to still know in a year. Skip small details, syntax, configuration, and trivia (file names, exact code, what the assistant said).
-- The question must be answerable from understanding alone, in one or two sentences (under ${ANSWER_CHARS} characters). If an idea needs a long essay, ask about one part of it.
+- The question must be answerable from understanding alone, in a few words (under ${ANSWER_CHARS} characters), so ask exactly one thing, never two questions joined by "and". If an idea needs an essay, ask about one part of it.
 - Ask for reasons: "why", "how", "what would happen if", "when would you not". A question answerable by recalling one word is too shallow.
 - Prefer transfer: set the idea in a fresh, concrete scenario different from the session, so the student must apply it, not repeat it.
 - Target the misconception a student is most likely to hold about this topic.
@@ -197,7 +199,7 @@ const savedFocus = async ($: Api): Promise<string[]> => {
   return Array.isArray(saved) ? saved.filter((t): t is string => typeof t === 'string') : []
 }
 
-const openPane = ($: Api, focus = false) => $.ui.open({ id: PANE, title: 'Quiz', ...(focus ? { focus: true } : {}) })
+const openPane = ($: Api, focus?: true) => $.ui.open({ id: PANE, title: 'Quiz', focus })
 
 const setFormat = async ($: Api, fn: (f: Format) => Format) => $.store.set('format', await update($, format, fn))
 
@@ -252,9 +254,8 @@ async function askQuestion($: Api) {
     term: str(data?.term).trim(),
     definition: str(data?.definition).trim(),
   }))
-  // A free-text answer is typed in the prompt, so only multiple choice takes
-  // the pane's keyboard (and only over an empty prompt).
-  void openPane($, isChoice)
+  // Takes the keyboard only over an empty prompt, so it never interrupts typing.
+  void openPane($, true)
 }
 
 const verdictOf = (feedback: string): Verdict | undefined => {
@@ -265,7 +266,6 @@ const verdictOf = (feedback: string): Verdict | undefined => {
 async function gradeFree($: Api, answer: string) {
   const q: Quiz = await read($, quiz)
   if (q.status !== 'asking' || answer.trim() === '') return
-  answer = answer.slice(0, ANSWER_CHARS)
   await update($, quiz, (cur): Quiz => ({ ...cur, status: 'grading', answer }))
   const feedback = await haiku($, GRADE_SYSTEM, `Question: ${q.question}\n\nAnswer: ${answer}`, 300)
   const done = await update($, quiz, (cur): Quiz => ({
@@ -318,7 +318,6 @@ export const register: Register = on => {
       name: 'quiz',
       description: 'Open the Quiz pane. Args: now | focus <areas> | notes | limit <tokens>|off | settings | free | choice',
     })
-    await $.command.register({ name: 'answer', description: 'Answer the quiz question: your answer, or 1-4 for multiple choice' })
     const saved = await $.store.get('format')
     if (saved === 'free' || saved === 'choice') await update($, format, () => saved)
     // A reload drops any model call in flight; state survives it, so settle
@@ -336,23 +335,6 @@ export const register: Register = on => {
       $.clock.after(0, () => void askQuestion($))
     }
     return next(e)
-  })
-
-  // The prompt box wraps and edits a long answer; the pane's field cannot.
-  on('command.run', { command: 'answer' }, async ($, e) => {
-    const q: Quiz = await read($, quiz)
-    const text = e.args.trim()
-    if (q.status !== 'asking') return { text: 'No quiz question is waiting.' }
-    if (text === '') return { text: 'Type your answer after /answer.' }
-    if (q.format === 'choice') {
-      const pick = Number(text) - 1
-      if (!(pick >= 0 && pick < q.choices.length)) return { text: `Answer with a number from 1 to ${q.choices.length}.` }
-      await update($, quiz, (cur): Quiz => ({ ...cur, selected: pick }))
-      await submitChoice($)
-      return { text: 'Answered. The feedback is in the Quiz pane.' }
-    }
-    void gradeFree($, text)
-    return { text: 'Checking your answer. The feedback will show in the Quiz pane.' }
   })
 
   on('command.run', { command: 'quiz' }, async ($, e) => {
@@ -394,6 +376,8 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
+    // Mobile draws no text fields.
+    const Input = 'Input' in els ? els.Input : undefined
     const q: Quiz = await read($, quiz)
     const fmt: Format = await read($, format)
     const isSettings: boolean = await read($, showSettings)
@@ -402,8 +386,12 @@ export const register: Register = on => {
     // submitted an answer has nothing to land on.
     const busy = isBusy(q.status)
     const asking = q.status === 'asking'
+    const typing = asking && q.format === 'free' && Input !== undefined
     const width = Math.max(0, e.props.bodyColumns - 4)
     const rule = <Text dimColor>{'─'.repeat(width)}</Text>
+    // The field never wraps, so an answer is held to what one line of the box
+    // shows: the pane width less the border, padding and the hint.
+    const room = Math.max(10, Math.min(ANSWER_CHARS, width - 8))
     const step: number = await read($, petStep)
     const pet = petAt(step, width - CAT_WIDTH - 1)
 
@@ -440,10 +428,24 @@ export const register: Register = on => {
                 ))}
               </Box>
             )}
-            {asking && q.format === 'free' && (
+            {asking && q.format === 'free' && Input === undefined && <Text dimColor>Free-text answers need the terminal or desktop app.</Text>}
+            {typing && Input !== undefined && (
               <Box marginTop={1} flexDirection="column">
-                <Text dimColor>Answer in the prompt:</Text>
-                <Text color="claude">/answer <Text dimColor>your answer</Text></Text>
+                <Text dimColor>Your answer</Text>
+                <Box borderStyle="round" borderColor="claude" paddingX={1}>
+                  <Input
+                    // A new key per question gives each one an empty field.
+                    key={`answer-${q.question}`}
+                    placeholder="Type your answer"
+                    rows={1}
+                    autoFocus
+                    submitLabel=""
+                    value={q.draft}
+                    onInput={(value: string) => void update($, quiz, (cur): Quiz => ({ ...cur, draft: value.replace(/\n/g, ' ').slice(0, room) }))}
+                    onSubmit={(value: string) => void gradeFree($, value.slice(0, room))}
+                  />
+                </Box>
+                {q.draft.length >= room && <Text dimColor>The box is full. Keep it short.</Text>}
               </Box>
             )}
             {(q.status === 'answered' || q.status === 'teaching' || q.status === 'taught') && (
@@ -479,6 +481,11 @@ export const register: Register = on => {
             {(q.status === 'idle' || q.status === 'error') && (
               <Button key="now" hotkey="n" variant="primary" onPress={() => void askQuestion($)}>
                 {q.status === 'idle' ? 'Ask me now' : 'Try again'}
+              </Button>
+            )}
+            {typing && (
+              <Button key="send" variant="primary" onPress={() => void gradeFree($, q.draft)}>
+                Submit
               </Button>
             )}
             {asking && q.format === 'choice' && (
@@ -521,7 +528,7 @@ export const register: Register = on => {
               )}
             </Box>
           )}
-          {!e.props.isFocused && !(asking && q.format === 'free') && <Text dimColor>ctrl+x tab to use the pane</Text>}
+          {!e.props.isFocused && <Text dimColor>ctrl+x tab to answer here</Text>}
         </Box>
         <Box flexDirection="column" marginTop={1}>
           <Text color="claude">{' '.repeat(pet.right ? pet.x + 1 : pet.x)}{CAT_TOP}</Text>

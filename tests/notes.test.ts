@@ -12,6 +12,7 @@ const QUIZ: Quiz = {
   selected: -1,
   explanation: '',
   answer: 'So a cut never leaves half a key.',
+  draft: '',
   feedback: 'Solid. Redacting first means no partial secret survives a cut.',
   verdict: 'solid',
   lesson: '',
