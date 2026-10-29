@@ -40,6 +40,7 @@ In the desktop app, click **+** next to the prompt box, then **Plugins**, **Add 
    - **Free text:** type up to 280 characters, then press Enter or **Submit**. Long answers show in full under the box.
    - **Multiple choice:** press **1** to **4** to select an answer. You can change your choice. Then press **a** or **Submit**.
 4. Read the feedback, then press **Next question**, or go back to your work. A new question comes the next time Claude starts working.
+5. If you missed the question (a wrong pick, or feedback that starts with "Partly." or "Not yet."), press **d** or **Go deeper** for a short lesson on the gap: the core idea, one example, and the one thing to remember. It shows under the feedback.
 
 Press **s** to skip a question and **f** to switch between free text and multiple choice.
 
@@ -63,7 +64,7 @@ The format, question limit, and token budget are saved across sessions.
 
 ### Cost
 
-Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. A multiple-choice answer is checked by the plugin, with no second call. On a Claude subscription, the calls count toward your plan's usage limits.
+Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. A multiple-choice answer is checked by the plugin, with no second call. **Go deeper** makes one more call, only when you press it, of about 300 to 600 tokens. It counts toward the token budget but not the question limit. On a Claude subscription, the calls count toward your plan's usage limits.
 
 ### In the code
 
@@ -74,6 +75,7 @@ All of these are constants at the top of [`hooks/register.tsx`](hooks/register.t
 | `MODEL` | `haiku` | The model that writes and grades questions. |
 | `ASK_MAX_TOKENS` | 400 | Longest reply when making a question. |
 | `GRADE_MAX_TOKENS` | 300 | Longest reply when grading. |
+| `LESSON_MAX_TOKENS` | 350 | Longest reply for a **Go deeper** lesson. |
 | `CONTEXT_CHARS` | 6000 | How much of the session is sent to make a question. |
 | `ANSWER_CHARS` | 280 | Longest free-text answer. |
 | `DEFAULTS` | free text, 20,000 tokens, 10 questions | Settings before you change them with `/quiz`. |
@@ -81,7 +83,7 @@ All of these are constants at the top of [`hooks/register.tsx`](hooks/register.t
 
 ### Prompts
 
-The prompts that make and grade questions are in [`PROMPTS.md`](PROMPTS.md), with the teaching ideas behind them. Edit the constants `ASK_SYSTEM`, `MOVES`, `CHOICE_RULES`, and `GRADE_SYSTEM` in `hooks/register.tsx` to change them.
+The prompts that make and grade questions and write **Go deeper** lessons are in [`PROMPTS.md`](PROMPTS.md), with the teaching ideas behind them. Edit the constants `ASK_SYSTEM`, `MOVES`, `CHOICE_RULES`, `GRADE_SYSTEM`, and `LESSON_SYSTEM` in `hooks/register.tsx` to change them.
 
 ## Develop
 
