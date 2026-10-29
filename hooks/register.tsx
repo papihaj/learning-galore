@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Api, Register, RenderChildren } from 'claude-code'
 
-import type { Format, Quiz, QuizSettings, QuizStats, QuizUsage, Verdict } from '../types'
+import type { Format, LogRecord, Quiz, QuizSettings, QuizStats, QuizUsage, Verdict } from '../types'
+import { appendRecord, buildRecord, toAnki, toMarkdown } from './log'
 import { isSecretPath, redact } from './redact'
 
 const PANE = 'session-quiz'
@@ -216,6 +217,26 @@ async function recordAnswer($: Api, verdict: Verdict | undefined): Promise<QuizS
   return next
 }
 
+// Reads the store fresh, like recordAnswer, so two sessions both append.
+async function logAnswer($: Api, q: Quiz, verdict: Verdict | undefined) {
+  const log = ((await $.store.get('log')) as LogRecord[] | undefined) ?? []
+  await $.store.set('log', appendRecord(log, buildRecord(q, verdict, dayKey(new Date()))))
+}
+
+// $.fs writes an absolute path as given; ~ is not expanded, so HOME is.
+async function exportLog($: Api, name: string, format: (log: LogRecord[]) => string): Promise<string> {
+  const log = ((await $.store.get('log')) as LogRecord[] | undefined) ?? []
+  if (log.length === 0) return 'No answers logged yet. Answer a question first.'
+  const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
+  const path = home === undefined ? `learning/${name}` : `${home}/learning/${name}`
+  try {
+    await $.fs.write(path, format(log))
+  } catch (err) {
+    return `Could not write ${path}: ${err instanceof Error ? err.message : String(err)}`
+  }
+  return `Wrote ${log.length} ${log.length === 1 ? 'answer' : 'answers'} to ${path}.`
+}
+
 const streakText = (t: QuizStats) => `${liveStreak(t)}-day streak`
 
 function statsSummary(t: QuizStats): string {
@@ -314,7 +335,9 @@ async function gradeFree($: Api, answer: string) {
     feedback: r.isAnswered ? r.text.trim() : 'Could not grade this one, but thanks for answering.',
   }))
   // An ungraded answer still counts toward the streak, with no verdict.
-  const t = await recordAnswer($, r.isAnswered ? verdictOf(r.text) : undefined)
+  const verdict = r.isAnswered ? verdictOf(r.text) : undefined
+  const t = await recordAnswer($, verdict)
+  await logAnswer($, await read($, quiz), verdict)
   $.ui.status(stop ?? `Quiz: ${streakText(t)}`)
 }
 
@@ -323,7 +346,7 @@ const selectChoice = ($: Api, index: number) =>
 
 async function submitChoice($: Api) {
   let verdict: Verdict | undefined
-  await update($, quiz, (cur): Quiz => {
+  const done = await update($, quiz, (cur): Quiz => {
     const index = cur.selected
     if (cur.status !== 'asking' || index < 0) return cur
     const isRight = index === cur.correct
@@ -339,6 +362,7 @@ async function submitChoice($: Api) {
   // Unset when the press found no question to answer, so a repeat press never counts twice.
   if (verdict === undefined) return
   const t = await recordAnswer($, verdict)
+  await logAnswer($, done, verdict)
   $.ui.status(`Quiz: ${streakText(t)}`)
 }
 
@@ -378,7 +402,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'quiz',
-      description: 'Open the Quiz pane. Args: now | stats | free | choice | budget <tokens> | max <questions> | reset',
+      description: 'Open the Quiz pane. Args: now | stats | log | anki | free | choice | budget <tokens> | max <questions> | reset',
     })
     const saved = await $.store.get('settings')
     if (saved !== undefined) await update($, settings, () => ({ ...DEFAULTS, ...(saved as Partial<QuizSettings>) }))
@@ -438,6 +462,8 @@ export const register: Register = on => {
       const t: QuizStats = { ...NO_STATS, ...((await $.store.get('stats')) as Partial<QuizStats> | undefined) }
       return { text: statsSummary(t) }
     }
+    if (word === 'log') return { text: await exportLog($, 'session-quiz.md', toMarkdown) }
+    if (word === 'anki') return { text: await exportLog($, 'session-quiz-anki.tsv', toAnki) }
     if (word === 'now') {
       void askQuestion($)
       return { text: 'Making a question.' }

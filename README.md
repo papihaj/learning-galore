@@ -53,6 +53,15 @@ The plugin counts every answer across sessions. Once you have answered a questio
 
 Each answer is tallied as Solid, Partly, or Not yet. A free-text answer takes the first word of its grade. A multiple-choice answer is Solid when it is right and Not yet when it is wrong. Run `/quiz stats` to see the totals.
 
+### Review log and Anki cards
+
+The plugin keeps a log of your last 500 answers across sessions: the date, the question, your answer, the verdict, the feedback, the source file if there was one, and for multiple choice the choices and the right answer. Your answer and the feedback go through the same secret redaction as the session text before they are saved.
+
+- Run `/quiz log` to write the log as Markdown to `~/learning/session-quiz.md`. It has one section per day, newest first. In each day, the questions you missed come first and their headings start with "Missed:".
+- Run `/quiz anki` to write `~/learning/session-quiz-anki.tsv`, one card per question. The front is the question. The back is the right answer for multiple choice, or the last sentence of the feedback (the key idea) for free text. Each card is tagged `session-quiz` and its verdict, such as `not-yet`. In Anki, choose **File**, then **Import**, and pick the file. The note type is Basic.
+
+Each command replaces the file with the whole log, so you can run it as often as you like. The folder is created if it does not exist.
+
 ## Privacy
 
 To make a question, the plugin sends Haiku a short digest of the session: the text of the last 40 messages, each cut to 600 characters, and one line per tool call with its file path, command, or search pattern. A tool call shows only as that line, not its output. The digest is at most 6,000 characters. To grade a free-text answer, it sends only the question and your answer.
@@ -67,6 +76,8 @@ Before the digest leaves the plugin, likely secrets are replaced with `[redacted
 
 Tool calls on secrets files (`.env`, `.env.*`, `*.pem`, `id_rsa*`, `credentials*`) are left out entirely. The patterns are in [`hooks/redact.ts`](hooks/redact.ts). They catch common shapes, not every secret, so avoid pasting credentials into a session.
 
+The review log stays on your computer, in the plugin's store under your Claude Code configuration folder and in the files you export. Nothing in it is sent anywhere.
+
 ## Customize
 
 ### Commands
@@ -76,13 +87,15 @@ Tool calls on secrets files (`.env`, `.env.*`, `*.pem`, `id_rsa*`, `credentials*
 | `/quiz` | Open the pane and show this session's usage. |
 | `/quiz now` | Ask a question now. |
 | `/quiz stats` | Show your answers, Solid, Partly, and Not yet counts, and your current and best streak. |
+| `/quiz log` | Write your review log to `~/learning/session-quiz.md`. |
+| `/quiz anki` | Write your review log as Anki cards to `~/learning/session-quiz-anki.tsv`. |
 | `/quiz free` | Use free-text questions. |
 | `/quiz choice` | Use multiple-choice questions. |
 | `/quiz max 5` | Ask at most 5 questions per session. The default is 10. |
 | `/quiz budget 30000` | Use at most 30,000 tokens per session. The default is 20,000. |
 | `/quiz reset` | Reset this session's question and token count. |
 
-The format, question limit, token budget, and stats are saved across sessions. `/quiz reset` does not clear stats.
+The format, question limit, token budget, stats, and review log are saved across sessions. `/quiz reset` does not clear stats or the log.
 
 ### Cost
 

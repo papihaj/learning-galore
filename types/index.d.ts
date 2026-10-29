@@ -31,6 +31,21 @@ export type QuizStats = Record<Verdict, number> & {
   lastDay: string
 }
 
+// One answered question, kept in $.store for /quiz log and /quiz anki.
+// `day` is the local date (YYYY-MM-DD) it was answered. `choices` and `right`
+// are set for multiple choice only, `source` only when the question named one.
+export type LogRecord = {
+  day: string
+  question: string
+  format: Format
+  answer: string
+  verdict: Verdict | 'ungraded'
+  feedback: string
+  source?: string
+  choices?: string[]
+  right?: string
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'session-quiz': {
