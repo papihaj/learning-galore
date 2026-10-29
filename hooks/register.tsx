@@ -9,6 +9,7 @@ const MODEL = 'haiku'
 // Caps on each call, so one question never costs much.
 const ASK_MAX_TOKENS = 400
 const GRADE_MAX_TOKENS = 300
+const LESSON_MAX_TOKENS = 350
 const CONTEXT_CHARS = 6000
 const ANSWER_CHARS = 280
 
@@ -23,6 +24,7 @@ const EMPTY: Quiz = {
   answer: '',
   draft: '',
   feedback: '',
+  lesson: '',
   error: '',
   source: '',
 }
@@ -30,7 +32,7 @@ const DEFAULTS: QuizSettings = { format: 'free', budget: 20000, maxQuestions: 10
 const NO_STATS: QuizStats = { answered: 0, solid: 0, partly: 0, notYet: 0, streak: 0, best: 0, lastDay: '' }
 
 const quiz = atom({ plugin: 'session-quiz', key: 'quiz' } as const, EMPTY, {
-  shape: 'quiz-4',
+  shape: 'quiz-5',
 })
 const usage = atom(
   { plugin: 'session-quiz', key: 'usage' } as const,
@@ -85,6 +87,15 @@ Open with one verdict word: "Solid.", "Partly." or "Not yet."
 Then, in at most two short sentences: name what they got right, and name the specific gap or misconception (not a vague "add more detail").
 End with the key idea in one plain sentence. Do not ask the student anything: they cannot reply.
 At most 60 words in all. Plain text, no headings, no lists.`
+
+// Asked for only after a miss, so the lesson aims at the one gap the
+// feedback named instead of re-teaching the whole topic.
+const LESSON_SYSTEM = `You are a kind, exact professor. Your student just missed part of a review question, and asked you to go deeper. You write a short micro-lesson on exactly the gap their answer shows, so they get it right next time.
+First, the core idea in plain words: what is true, and why.
+Then one concrete example that makes it click. Use a tiny code snippet only if it truly helps, at most 5 lines, on its own lines with no fences.
+End with the one thing to remember, in one plain sentence that starts with "Remember:".
+Do not repeat the question or the feedback. Do not ask the student anything: they cannot reply.
+At most 120 words in all. Plain text, no headings, no lists, no markdown.`
 
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s)
 
@@ -159,11 +170,12 @@ async function spend($: Api, r: { input_tokens: number; output_tokens: number })
   }))
 }
 
-async function overBudget($: Api): Promise<string | undefined> {
+// A lesson is not a new question, so it checks only the token budget.
+async function overBudget($: Api, countQuestions = true): Promise<string | undefined> {
   const u: QuizUsage = await read($, usage)
   const s: QuizSettings = await read($, settings)
   if (u.tokens >= s.budget) return `Token budget used up (${u.tokens}/${s.budget}).`
-  if (u.questions >= s.maxQuestions) return `Question limit reached (${s.maxQuestions}).`
+  if (countQuestions && u.questions >= s.maxQuestions) return `Question limit reached (${s.maxQuestions}).`
   return undefined
 }
 
@@ -220,7 +232,7 @@ const openPane = ($: Api) => $.ui.open({ id: PANE, title: 'Quiz' })
 
 async function askQuestion($: Api) {
   const current: Quiz = await read($, quiz)
-  if (current.status === 'thinking' || current.status === 'grading') return
+  if (current.status === 'thinking' || current.status === 'grading' || current.status === 'teaching') return
   const stop = await overBudget($)
   if (stop !== undefined) {
     await update($, quiz, (): Quiz => ({ ...EMPTY, status: 'error', error: `${stop} Raise it with /quiz max or /quiz budget.` }))
@@ -330,6 +342,37 @@ async function submitChoice($: Api) {
   $.ui.status(`Quiz: ${streakText(t)}`)
 }
 
+// "Partly." and "Not yet." are the verdicts GRADE_SYSTEM opens with; a wrong
+// pick is a miss outright.
+const isMiss = (q: Quiz) =>
+  q.format === 'choice' ? q.selected !== q.correct : /^(Partly|Not yet)\b/.test(q.feedback)
+
+async function goDeeper($: Api) {
+  const q: Quiz = await read($, quiz)
+  if (q.status !== 'answered' || !isMiss(q)) return
+  const stop = await overBudget($, false)
+  if (stop !== undefined) {
+    await update($, quiz, (cur): Quiz => ({ ...cur, status: 'taught', lesson: '', error: `${stop} Raise it with /quiz budget.` }))
+    return
+  }
+  await update($, quiz, (cur): Quiz => ({ ...cur, status: 'teaching', lesson: '', error: '' }))
+  const right = q.format === 'choice' ? `\n\nRight answer: ${q.choices[q.correct] ?? ''}` : ''
+  const r = await complete($, {
+    model: MODEL,
+    system: LESSON_SYSTEM,
+    prompt: `Question: ${q.question}\n\nStudent's answer: ${q.answer.slice(0, ANSWER_CHARS)}${right}\n\nFeedback they got: ${q.feedback}`,
+    maxTokens: LESSON_MAX_TOKENS,
+    effort: 'low',
+    timeoutMs: 30000,
+  })
+  await spend($, r.usage)
+  await update($, quiz, (cur): Quiz => ({
+    ...cur,
+    status: 'taught',
+    lesson: r.isAnswered ? r.text.trim() : '',
+    error: r.isAnswered ? '' : 'Could not write a lesson this time.',
+  }))
+}
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
@@ -345,7 +388,13 @@ export const register: Register = on => {
     // A reload drops any model call in flight; state survives it, so settle
     // whatever that call left waiting.
     await update($, quiz, (q): Quiz =>
-      q.status === 'thinking' ? { ...q, status: 'idle' } : q.status === 'grading' ? { ...q, status: 'asking' } : q,
+      q.status === 'thinking'
+        ? { ...q, status: 'idle' }
+        : q.status === 'grading'
+          ? { ...q, status: 'asking' }
+          : q.status === 'teaching'
+            ? { ...q, status: 'answered' }
+            : q,
     )
     void openPane($)
 
@@ -356,7 +405,7 @@ export const register: Register = on => {
   on('turn.start', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     const q: Quiz = await read($, quiz)
-    if (q.status === 'idle' || q.status === 'answered' || q.status === 'error') {
+    if (q.status === 'idle' || q.status === 'answered' || q.status === 'taught' || q.status === 'error') {
       $.clock.after(0, () => void askQuestion($))
     }
 
@@ -418,7 +467,8 @@ export const register: Register = on => {
     // submitted an answer has nothing to land on.
     // The field's text area: the pane width less the border, padding and hint.
     const fieldWidth = Math.max(0, e.props.bodyColumns - 10)
-    const isBusy = q.status === 'thinking' || q.status === 'grading'
+    const isAnswered = q.status === 'answered' || q.status === 'teaching' || q.status === 'taught'
+    const isBusy = q.status === 'thinking' || q.status === 'grading' || q.status === 'teaching'
     // `claude` is the theme's own accent, so the pane follows the person's theme.
     const ACCENT = 'claude'
     const header = (
@@ -504,12 +554,22 @@ export const register: Register = on => {
         </Box>
       ),
       q.status === 'grading' && <Text dimColor>Checking your answer…</Text>,
-      q.status === 'answered' && (
+      isAnswered && (
         <Box flexDirection="column" marginTop={1}>
           <Text dimColor>
             {q.format === 'free' ? 'You said' : 'You picked'}: {clip(q.answer, 300)}
           </Text>
           <Text>{q.feedback}</Text>
+        </Box>
+      ),
+      q.status === 'teaching' && (
+        <Box marginTop={1}>
+          <Text dimColor>Writing a short lesson…</Text>
+        </Box>
+      ),
+      q.status === 'taught' && (
+        <Box marginTop={1}>
+          {q.lesson !== '' ? <Text>{q.lesson}</Text> : <Text dimColor>{q.error}</Text>}
         </Box>
       ),
       <Box marginTop={1} gap={2}>
@@ -534,8 +594,13 @@ export const register: Register = on => {
             {q.draft.length}/{ANSWER_CHARS}
           </Text>
         )}
-        {q.status === 'answered' && (
+        {(q.status === 'answered' || q.status === 'taught') && (
           <Button key="next" hotkey="n" variant="primary" onPress={() => void askQuestion($)}>Next question</Button>
+        )}
+        {q.status === 'answered' && isMiss(q) && (
+          <Button key="deeper" hotkey="d" onPress={() => void goDeeper($)}>
+            Go deeper <Text dimColor>d</Text>
+          </Button>
         )}
       </Box>,
     )

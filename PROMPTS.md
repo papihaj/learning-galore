@@ -97,6 +97,35 @@ Answer: {the answer, at most 280 characters}
 
 Longest reply: 300 tokens.
 
+## 3. Going deeper after a miss
+
+After a miss (a wrong pick, or a grade that opens with "Partly." or "Not yet."), the pane offers **Go deeper**. Pressing it makes one call that writes a short lesson on the gap. It never runs on its own.
+
+**System prompt** (`LESSON_SYSTEM`):
+
+```text
+You are a kind, exact professor. Your student just missed part of a review question, and asked you to go deeper. You write a short micro-lesson on exactly the gap their answer shows, so they get it right next time.
+First, the core idea in plain words: what is true, and why.
+Then one concrete example that makes it click. Use a tiny code snippet only if it truly helps, at most 5 lines, on its own lines with no fences.
+End with the one thing to remember, in one plain sentence that starts with "Remember:".
+Do not repeat the question or the feedback. Do not ask the student anything: they cannot reply.
+At most 120 words in all. Plain text, no headings, no lists, no markdown.
+```
+
+**User message:**
+
+```text
+Question: {the question}
+
+Student's answer: {the answer, at most 280 characters}
+
+Right answer: {multiple choice only: the right choice}
+
+Feedback they got: {the feedback}
+```
+
+Longest reply: 350 tokens. If the token budget is used up, the pane shows the limit message instead of calling Haiku.
+
 ## The teaching ideas behind the prompts
 
 - **Retrieval practice.** Recalling an idea from memory makes it last longer than reading it again. Every question asks you to produce an answer.
@@ -106,3 +135,4 @@ Longest reply: 300 tokens.
 - **Spreading practice across topics.** The "already asked" list pushes each question to a different concept.
 - **Misconceptions as wrong choices.** Wrong choices come from real misunderstandings, so a wrong pick shows what to fix.
 - **Specific feedback.** The grade names the exact gap and ends with the key idea.
+- **Worked examples on demand.** After a miss, a short explanation with one concrete example helps more than another question. It comes only when you ask, so it costs nothing when you do not need it.

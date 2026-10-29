@@ -1,7 +1,7 @@
 export type Format = 'free' | 'choice'
 
 export type Quiz = {
-  status: 'idle' | 'thinking' | 'asking' | 'grading' | 'answered' | 'error'
+  status: 'idle' | 'thinking' | 'asking' | 'grading' | 'answered' | 'teaching' | 'taught' | 'error'
   format: Format
   question: string
   choices: string[]
@@ -11,6 +11,7 @@ export type Quiz = {
   answer: string
   draft: string
   feedback: string
+  lesson: string
   error: string
   source: string
 }
