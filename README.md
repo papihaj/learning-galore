@@ -22,8 +22,6 @@ The screenshots come from a real session. To retake one, see [Develop](#develop)
 
 ## Install
 
-This repository is private. To install it, you need read access to it on GitHub, and your computer needs a git credential for github.com (an SSH key, or `gh auth login` and then `gh auth setup-git`).
-
 At the prompt of a Claude Code terminal session:
 
 ```text
