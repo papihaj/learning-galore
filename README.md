@@ -18,6 +18,12 @@ In Claude Code, run:
 /plugin install session-quiz --marketplace papihaj/learning-galore
 ```
 
+To update, run this in a terminal and restart Claude Code:
+
+```
+claude plugin marketplace update learning-galore && claude plugin update session-quiz@learning-galore
+```
+
 ## Use it
 
 Use Claude Code normally. When a question is waiting, open it with `/quiz` and answer in the box. Your terms are saved to `learning-galore-notes/notes.md` in your project.
