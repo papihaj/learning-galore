@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Api, Register, RenderChildren } from 'claude-code'
 
-import type { Format, Quiz, QuizSettings, QuizStats, QuizUsage, Verdict } from '../types'
+import type { Format, Quiz, QuizSettings, QuizStats, QuizUsage, TokenLog, Verdict } from '../types'
 import { isSecretPath, redact } from './redact'
 
 const PANE = 'session-quiz'
@@ -28,7 +28,7 @@ const EMPTY: Quiz = {
   error: '',
   source: '',
 }
-const DEFAULTS: QuizSettings = { format: 'free', budget: 20000, maxQuestions: 10 }
+const DEFAULTS: QuizSettings = { format: 'free' }
 const NO_STATS: QuizStats = { answered: 0, solid: 0, partly: 0, notYet: 0, streak: 0, best: 0, lastDay: '' }
 
 const quiz = atom({ plugin: 'session-quiz', key: 'quiz' } as const, EMPTY, {
@@ -42,10 +42,17 @@ const usage = atom(
 const settings = atom(
   { plugin: 'session-quiz', key: 'settings' } as const,
   DEFAULTS,
-  { shape: 'settings-1' },
+  { shape: 'settings-2' },
 )
 const asked = atom({ plugin: 'session-quiz', key: 'asked' } as const, [], {
   shape: 'asked-1',
+})
+const showSettings = atom({ plugin: 'session-quiz', key: 'showSettings' } as const, false, {
+  shape: 'show-settings-1',
+})
+// A copy of the stored daily token counts, so the Settings view redraws.
+const tokenLog = atom({ plugin: 'session-quiz', key: 'tokenLog' } as const, {}, {
+  shape: 'token-log-1',
 })
 // A copy of the stored stats, so the pane redraws when they change.
 const stats = atom({ plugin: 'session-quiz', key: 'stats' } as const, NO_STATS, {
@@ -163,20 +170,19 @@ async function complete($: Api, request: Parameters<Api['model']['complete']>[0]
   }
 }
 
+// There is no budget to stop at: spending is only counted, per session and
+// per day, for the Settings view.
 async function spend($: Api, r: { input_tokens: number; output_tokens: number }) {
-  await update($, usage, u => ({
-    ...u,
-    tokens: u.tokens + r.input_tokens + r.output_tokens,
-  }))
-}
-
-// A lesson is not a new question, so it checks only the token budget.
-async function overBudget($: Api, countQuestions = true): Promise<string | undefined> {
-  const u: QuizUsage = await read($, usage)
-  const s: QuizSettings = await read($, settings)
-  if (u.tokens >= s.budget) return `Token budget used up (${u.tokens}/${s.budget}).`
-  if (countQuestions && u.questions >= s.maxQuestions) return `Question limit reached (${s.maxQuestions}).`
-  return undefined
+  const n = r.input_tokens + r.output_tokens
+  await update($, usage, u => ({ ...u, tokens: u.tokens + n }))
+  // Reads the store fresh, so two sessions on one day both count.
+  const days = ((await $.store.get('tokenLog')) ?? {}) as TokenLog
+  const today = dayKey(new Date())
+  const kept = Object.keys(days).sort().slice(-29)
+  const next: TokenLog = Object.fromEntries(kept.map(d => [d, days[d] ?? 0]))
+  next[today] = (next[today] ?? 0) + n
+  await $.store.set('tokenLog', next)
+  await update($, tokenLog, () => next)
 }
 
 // Local date, so a streak day ends at the person's midnight, not UTC's.
@@ -216,8 +222,6 @@ async function recordAnswer($: Api, verdict: Verdict | undefined): Promise<QuizS
   return next
 }
 
-const streakText = (t: QuizStats) => `${liveStreak(t)}-day streak`
-
 function statsSummary(t: QuizStats): string {
   if (t.answered === 0) return 'No quiz answers yet. Answer a question to start a streak.'
   const pct = (n: number) => `${Math.round((n / t.answered) * 100)}%`
@@ -233,11 +237,6 @@ const openPane = ($: Api) => $.ui.open({ id: PANE, title: 'Quiz' })
 async function askQuestion($: Api) {
   const current: Quiz = await read($, quiz)
   if (current.status === 'thinking' || current.status === 'grading' || current.status === 'teaching') return
-  const stop = await overBudget($)
-  if (stop !== undefined) {
-    await update($, quiz, (): Quiz => ({ ...EMPTY, status: 'error', error: `${stop} Raise it with /quiz max or /quiz budget.` }))
-    return
-  }
   const session = await digest($)
   const context = session.text
   if (context.length < 200) {
@@ -296,8 +295,6 @@ async function askQuestion($: Api) {
 async function gradeFree($: Api, answer: string) {
   const q: Quiz = await read($, quiz)
   if (q.status !== 'asking' || answer.trim() === '') return
-  const stop = await overBudget($)
-  // The question is already paid for; grading may run slightly over the budget.
   await update($, quiz, (cur): Quiz => ({ ...cur, status: 'grading', answer }))
   const r = await complete($, {
     model: MODEL,
@@ -314,8 +311,8 @@ async function gradeFree($: Api, answer: string) {
     feedback: r.isAnswered ? r.text.trim() : 'Could not grade this one, but thanks for answering.',
   }))
   // An ungraded answer still counts toward the streak, with no verdict.
-  const t = await recordAnswer($, r.isAnswered ? verdictOf(r.text) : undefined)
-  $.ui.status(stop ?? `Quiz: ${streakText(t)}`)
+  await recordAnswer($, r.isAnswered ? verdictOf(r.text) : undefined)
+  $.ui.status(undefined)
 }
 
 const selectChoice = ($: Api, index: number) =>
@@ -338,8 +335,8 @@ async function submitChoice($: Api) {
   })
   // Unset when the press found no question to answer, so a repeat press never counts twice.
   if (verdict === undefined) return
-  const t = await recordAnswer($, verdict)
-  $.ui.status(`Quiz: ${streakText(t)}`)
+  await recordAnswer($, verdict)
+  $.ui.status(undefined)
 }
 
 // "Partly." and "Not yet." are the verdicts GRADE_SYSTEM opens with; a wrong
@@ -350,11 +347,6 @@ const isMiss = (q: Quiz) =>
 async function goDeeper($: Api) {
   const q: Quiz = await read($, quiz)
   if (q.status !== 'answered' || !isMiss(q)) return
-  const stop = await overBudget($, false)
-  if (stop !== undefined) {
-    await update($, quiz, (cur): Quiz => ({ ...cur, status: 'taught', lesson: '', error: `${stop} Raise it with /quiz budget.` }))
-    return
-  }
   await update($, quiz, (cur): Quiz => ({ ...cur, status: 'teaching', lesson: '', error: '' }))
   const right = q.format === 'choice' ? `\n\nRight answer: ${q.choices[q.correct] ?? ''}` : ''
   const r = await complete($, {
@@ -378,10 +370,12 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'quiz',
-      description: 'Open the Quiz pane. Args: now | stats | free | choice | budget <tokens> | max <questions> | reset',
+      description: 'Open the Quiz pane. Args: now | settings | stats | free | choice',
     })
     const saved = await $.store.get('settings')
     if (saved !== undefined) await update($, settings, () => ({ ...DEFAULTS, ...(saved as Partial<QuizSettings>) }))
+    const savedTokens = await $.store.get('tokenLog')
+    if (savedTokens !== undefined) await update($, tokenLog, () => savedTokens as TokenLog)
     const savedStats = await $.store.get('stats')
     if (savedStats !== undefined) await update($, stats, () => ({ ...NO_STATS, ...(savedStats as Partial<QuizStats>) }))
     $.ui.status(undefined)
@@ -413,7 +407,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'quiz' }, async ($, e) => {
-    const [word = '', value = ''] = e.args.trim().split(/\s+/)
+    const [word = ''] = e.args.trim().split(/\s+/)
     const save = async (fn: (s: QuizSettings) => QuizSettings) => {
       const s = await update($, settings, fn)
       await $.store.set('settings', s)
@@ -424,15 +418,9 @@ export const register: Register = on => {
       await save(s => ({ ...s, format: word as Format }))
       return { text: `Quiz format: ${word === 'free' ? 'free text' : 'multiple choice'}.` }
     }
-    if (word === 'budget' || word === 'max') {
-      const n = Number(value)
-      if (!Number.isInteger(n) || n <= 0) return { text: `Usage: /quiz ${word} <positive number>` }
-      const s = await save(cur => (word === 'budget' ? { ...cur, budget: n } : { ...cur, maxQuestions: n }))
-      return { text: `Quiz limits: ${s.budget} tokens, ${s.maxQuestions} questions per session.` }
-    }
-    if (word === 'reset') {
-      await update($, usage, () => ({ tokens: 0, questions: 0 }))
-      return { text: 'Quiz usage for this session reset.' }
+    if (word === 'settings') {
+      await update($, showSettings, () => true)
+      return { text: 'Quiz settings opened in the pane.' }
     }
     if (word === 'stats') {
       const t: QuizStats = { ...NO_STATS, ...((await $.store.get('stats')) as Partial<QuizStats> | undefined) }
@@ -442,9 +430,7 @@ export const register: Register = on => {
       void askQuestion($)
       return { text: 'Making a question.' }
     }
-    const u: QuizUsage = await read($, usage)
-    const s: QuizSettings = await read($, settings)
-    return { text: `Quiz pane opened. Used ${u.tokens}/${s.budget} tokens, ${u.questions}/${s.maxQuestions} questions.` }
+    return { text: 'Quiz pane opened. Run /quiz settings to see token use.' }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -461,7 +447,9 @@ export const register: Register = on => {
     const u: QuizUsage = await read($, usage)
     const s: QuizSettings = await read($, settings)
     const t: QuizStats = await read($, stats)
-    const streak = liveStreak(t)
+    const days: TokenLog = await read($, tokenLog)
+    const isSettings: boolean = await read($, showSettings)
+    const setSettings = (open: boolean) => void update($, showSettings, () => open)
 
     // While a model call runs the pane holds no control, so the Enter that
     // submitted an answer has nothing to land on.
@@ -474,24 +462,22 @@ export const register: Register = on => {
     const header = (
       <Box justifyContent="space-between" marginBottom={1}>
         <Text bold color={ACCENT}>Quiz</Text>
-        <Text dimColor>
-          {t.answered === 0
-            ? 'while Claude works'
-            : `${streak > 0 ? `${streak}-day streak · ` : ''}${t.answered} answered`}
-        </Text>
+        <Text dimColor>{isSettings ? 'settings' : 'while Claude works'}</Text>
       </Box>
     )
     const footer = (
       <Box flexDirection="column" marginTop={1}>
         {!isBusy && (
-          <Button key="format" hotkey="f" plain onPress={toggleFormat}>
-            Format <Text color={ACCENT}>{s.format === 'free' ? 'free text' : 'multiple choice'}</Text>
-          </Button>
+          <Box gap={2}>
+            <Button key="format" hotkey="f" plain onPress={toggleFormat}>
+              Format <Text color={ACCENT}>{s.format === 'free' ? 'free text' : 'multiple choice'}</Text>
+            </Button>
+            <Button key="settings" hotkey="g" plain onPress={() => setSettings(true)}>
+              Settings
+            </Button>
+          </Box>
         )}
-        <Text dimColor>
-          {u.questions}/{s.maxQuestions} questions this session
-          {e.props.isFocused ? '' : ' · ctrl+x tab to answer here'}
-        </Text>
+        {!e.props.isFocused && <Text dimColor>ctrl+x tab to answer here</Text>}
       </Box>
     )
     const frame = (...body: RenderChildren[]) => (
@@ -501,6 +487,43 @@ export const register: Register = on => {
         {footer}
       </Box>
     )
+
+    // Numbers live here only, so the quiz itself stays about the ideas.
+    if (isSettings) {
+      const today = dayKey(new Date())
+      const recent = Object.keys(days).sort().reverse().slice(0, 7)
+      const fmt = (n: number) => n.toLocaleString('en-US')
+      return (
+        <Box flexDirection="column">
+          {header}
+          <Button key="settings-format" hotkey="f" plain onPress={toggleFormat}>
+            Format <Text color={ACCENT}>{s.format === 'free' ? 'free text' : 'multiple choice'}</Text>
+          </Button>
+          <Box flexDirection="column" marginTop={1}>
+            <Text bold>Tokens used</Text>
+            <Text>Today: {fmt(days[today] ?? 0)}</Text>
+            <Text>This session: {fmt(u.tokens)} over {u.questions} {u.questions === 1 ? 'question' : 'questions'}</Text>
+            {recent.filter(d => d !== today).map(d => (
+              <Text dimColor>
+                {d}: {fmt(days[d] ?? 0)}
+              </Text>
+            ))}
+          </Box>
+          <Box flexDirection="column" marginTop={1}>
+            <Text bold>Answers</Text>
+            <Text>{statsSummary(t)}</Text>
+          </Box>
+          <Box marginTop={1}>
+            <Text dimColor>There is no limit. The quiz never stops you.</Text>
+          </Box>
+          <Box marginTop={1}>
+            <Button key="back" hotkey="b" variant="primary" onPress={() => setSettings(false)}>
+              Back to the quiz
+            </Button>
+          </Box>
+        </Box>
+      )
+    }
 
     if (q.status === 'idle') {
       return frame(
@@ -551,6 +574,7 @@ export const register: Register = on => {
           </Box>
           {/* The field scrolls a long line sideways; show the whole answer wrapped. */}
           {q.draft.length > fieldWidth && <Text dimColor>{q.draft}</Text>}
+          {q.draft.length >= ANSWER_CHARS && <Text dimColor>That is as long as an answer can be. Keep it short.</Text>}
         </Box>
       ),
       q.status === 'grading' && <Text dimColor>Checking your answer…</Text>,
@@ -588,11 +612,6 @@ export const register: Register = on => {
           <Button key="skip" hotkey="s" onPress={() => void update($, quiz, (cur): Quiz => ({ ...cur, status: 'idle' }))}>
             Skip <Text dimColor>s</Text>
           </Button>
-        )}
-        {q.status === 'asking' && q.format === 'free' && (
-          <Text dimColor>
-            {q.draft.length}/{ANSWER_CHARS}
-          </Text>
         )}
         {(q.status === 'answered' || q.status === 'taught') && (
           <Button key="next" hotkey="n" variant="primary" onPress={() => void askQuestion($)}>Next question</Button>
