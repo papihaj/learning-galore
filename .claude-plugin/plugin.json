@@ -1,7 +1,7 @@
 {
   "name": "session-quiz",
-  "version": "0.1.0",
-  "description": "Asks open-ended review questions about your session while Claude works, within a token budget",
+  "version": "0.2.0",
+  "description": "Asks you about key terms in what you are building while Claude works, and saves them to your notes",
   "types": "./types/index.d.ts",
   "author": {
     "name": "papihaj"
