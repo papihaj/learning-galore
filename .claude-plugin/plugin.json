@@ -1,0 +1,9 @@
+{
+  "name": "session-quiz",
+  "version": "0.1.0",
+  "description": "Asks open-ended review questions about your session while Claude works, within a token budget",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "papihaj"
+  }
+}

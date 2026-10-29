@@ -1,0 +1,5 @@
+{
+  "name": "learning-galore",
+  "owner": { "name": "papihaj" },
+  "plugins": [{ "name": "session-quiz", "source": "./" }]
+}
