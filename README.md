@@ -51,6 +51,7 @@ In the desktop app, click **+** next to the prompt box, then **Plugins**, **Add 
 
 Press **s** to skip a question, **f** to switch between free text and multiple choice, and **g** to open Settings.
 
+<<<<<<< HEAD
 The first prompt of a session gives no new question, because there is nothing to ask about yet. A review question can still come then.
 
 ### Review of missed questions
@@ -62,6 +63,19 @@ A saved question is due 1 day after the miss. Each time you get it right, the ga
 When a question is due, the plugin asks it in place of a new one, with a dim `Review from 2026-10-20` line that gives the day you first missed it. It asks the most overdue question first. Making a review question needs no model call. A free-text answer is still graded by Haiku. If you skip a review question, it comes back the next day.
 
 The queue holds at most 50 questions. When it is full, the questions due last are dropped first.
+=======
+### Topics to prioritize
+
+Name up to 5 topics you want to get better at, separated by commas:
+
+```text
+/quiz focus data science, distributed systems
+```
+
+These are areas you want to grow in, and they do not need to match what you are working on. The question always stays on an idea from your session, but when that idea has a real link to one of your areas, the question carries it there. For example, while you build a search box with a `data science` focus, you might get: "Debouncing waits for a pause before acting. Where does the same idea show up when you batch a stream of events before a model sees them?" A dim line such as `Linked to: data science` shows under the question. When the session works on an area directly, the question asks about it. When there is no honest link, the question is chosen as usual. Run `/quiz focus` to see your topics and `/quiz focus clear` to remove them. Topics are saved across sessions.
+
+The first prompt of a session gives no question, because there is nothing to ask about yet.
+>>>>>>> origin/idea/focus-topics
 
 ### Streaks and stats
 
@@ -105,16 +119,30 @@ The review log stays on your computer, in the plugin's store under your Claude C
 | `/quiz now` | Ask a question now. A due review question comes first. |
 | `/quiz review` | Show how many review questions are due and queued, and ask the most overdue one now. |
 | `/quiz stats` | Show your answers, Solid, Partly, and Not yet counts, and your current and best streak. |
+<<<<<<< HEAD
 | `/quiz log` | Write your review log to `~/learning/session-quiz.md`. |
 | `/quiz anki` | Write your review log as Anki cards to `~/learning/session-quiz-anki.tsv`. |
+=======
+| `/quiz focus data science, distributed systems` | Link questions about your work to these areas when there is a real connection. At most 5. |
+| `/quiz focus` | List your focus topics. |
+| `/quiz focus clear` | Remove all focus topics. |
+>>>>>>> origin/idea/focus-topics
 | `/quiz free` | Use free-text questions. |
 | `/quiz choice` | Use multiple-choice questions. |
 
+<<<<<<< HEAD
 The format, stats, daily token counts, and review queue are saved across sessions. The pane shows no counts while you answer; press **g** in the pane, or run `/quiz settings`, to see them.
 
 ### Cost
 
 Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file comes back in the same reply, so it adds no call. A multiple-choice answer is checked by the plugin, with no second call. A review question costs nothing to make, so a multiple-choice review costs no tokens at all. **Go deeper** makes one more call, only when you press it, of about 300 to 600 tokens. Nothing is capped: Settings shows tokens used today, the last week by day, and this session. On a Claude subscription, the calls count toward your plan's usage limits.
+=======
+The format, question limit, token budget, focus topics, and stats are saved across sessions. `/quiz reset` does not clear stats.
+
+### Cost
+
+Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file and focus topic come back in the same reply, so they add no call. Focus topics add a few dozen tokens to each question. A multiple-choice answer is checked by the plugin, with no second call. **Go deeper** makes one more call, only when you press it, of about 300 to 600 tokens. It counts toward the token budget but not the question limit. On a Claude subscription, the calls count toward your plan's usage limits.
+>>>>>>> origin/idea/focus-topics
 
 ### In the code
 
@@ -135,7 +163,7 @@ The review gaps and queue size are `INTERVALS` (1, 3, 7, 21 days) and `QUEUE_MAX
 
 ### Prompts
 
-The prompts that make and grade questions and write **Go deeper** lessons are in [`PROMPTS.md`](PROMPTS.md), with the teaching ideas behind them. Edit the constants `ASK_SYSTEM`, `MOVES`, `CHOICE_RULES`, `SOURCE_RULE`, `GRADE_SYSTEM`, and `LESSON_SYSTEM` in `hooks/register.tsx` to change them.
+The prompts that make and grade questions and write **Go deeper** lessons are in [`PROMPTS.md`](PROMPTS.md), with the teaching ideas behind them. Edit the constants `ASK_SYSTEM`, `MOVES`, `CHOICE_RULES`, `SOURCE_RULE`, `FOCUS_RULE`, `GRADE_SYSTEM`, and `LESSON_SYSTEM` in `hooks/register.tsx` to change them.
 
 ## Develop
 
@@ -166,4 +194,4 @@ python3 scripts/term-shot.py shot.ansi docs/screenshots/<name>.png --cols 125:17
 
 ## Roadmap
 
-See [TODOS.md](TODOS.md). Next up is letting you name topics to prioritize.
+See [TODOS.md](TODOS.md). Next up is giving more weight to topics you often miss.

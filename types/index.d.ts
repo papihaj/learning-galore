@@ -16,6 +16,8 @@ export type Quiz = {
   source: string
   // The day a review item was first missed; empty for a new question.
   reviewFrom: string
+  focus: string
+  topic: string
 }
 
 export type QuizUsage = { tokens: number; questions: number }
@@ -36,7 +38,7 @@ export type QuizStats = Record<Verdict, number> & {
   lastDay: string
 }
 
-// One answered question, kept on disk in ~/learning/session-quiz/answers.json.
+// One answered question, kept on disk in <project>/learning-galore-notes/answers.json.
 // `day` is the local date (YYYY-MM-DD) it was answered. `choices` and `right`
 // are set for multiple choice only, `source` only when the question named one.
 export type LogRecord = {
@@ -75,6 +77,8 @@ declare module 'claude-code' {
       stats: Shaped<QuizStats>
       showSettings: Shaped<boolean>
       tokenLog: Shaped<TokenLog>
+      checkin: Shaped<boolean>
+      picks: Shaped<Record<string, 'more' | 'less'>>
     }
   }
 }

@@ -2,6 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Api, Register, RenderChildren } from 'claude-code'
 
 import type { Format, LogRecord, Quiz, QuizSettings, QuizStats, QuizUsage, ReviewItem, TokenLog, Verdict } from '../types'
+import { applyPicks, CHECKIN_EVERY, checkLink, FOCUS_MAX, parseFocus, tallyTopic, topTopics } from './focus'
+import type { Pick, TopicPrefs } from './focus'
 import { appendRecord, buildRecord, toAnki, toMarkdown } from './log'
 import { isSecretPath, redact } from './redact'
 import { addDays, dayKey, dueItems, pickDue, schedule, upsert } from './review'
@@ -30,12 +32,14 @@ const EMPTY: Quiz = {
   error: '',
   source: '',
   reviewFrom: '',
+  focus: '',
+  topic: '',
 }
 const DEFAULTS: QuizSettings = { format: 'free' }
 const NO_STATS: QuizStats = { answered: 0, solid: 0, partly: 0, notYet: 0, streak: 0, best: 0, lastDay: '' }
 
 const quiz = atom({ plugin: 'session-quiz', key: 'quiz' } as const, EMPTY, {
-  shape: 'quiz-6',
+  shape: 'quiz-8',
 })
 const usage = atom(
   { plugin: 'session-quiz', key: 'usage' } as const,
@@ -58,6 +62,12 @@ const tokenLog = atom({ plugin: 'session-quiz', key: 'tokenLog' } as const, {}, 
   shape: 'token-log-1',
 })
 // A copy of the stored stats, so the pane redraws when they change.
+const checkin = atom({ plugin: 'session-quiz', key: 'checkin' } as const, false, {
+  shape: 'checkin-1',
+})
+const picks = atom({ plugin: 'session-quiz', key: 'picks' } as const, {}, {
+  shape: 'picks-1',
+})
 const stats = atom({ plugin: 'session-quiz', key: 'stats' } as const, NO_STATS, {
   shape: 'stats-1',
 })
@@ -91,6 +101,17 @@ const CHOICE_RULES = `For multiple choice: four options; the right one is listed
 
 // Asked in the same call as the question, so a source costs no extra request.
 const SOURCE_RULE = `Optionally add "source": the one file the concept came from, copied exactly from a "tool ...: <path>" line in the session. Add ":<line>" only if the session itself shows that file with that line number. Leave "source" out if no file fits.`
+
+// Sent only when the person has named topics. It never forces one the
+// session did not cover, since a question about unseen work cannot be retrieved.
+// The question stays on what the person is working on; a focus area only
+// changes the angle, so "data science" still applies to a day of frontend work.
+const FOCUS_RULE = `The student also wants to grow in these areas. Always ask about an idea from the session, never about a subject the session does not touch. If the session works on one of these areas directly, ask about that. Otherwise, if an idea from the session has a real, useful link to one of these areas, ask a question that carries the idea into that area: how the same idea shows up there, or what changes when it does. For example, a search box's debounce links to data science through batching a stream of events before a model sees them. Add "focus": that area, copied exactly from the list, and "bridge": a short phrase in that area's own words naming the setting the question uses (such as "batching events before a model"). The question itself must use that setting. If there is no honest link, ask as usual and leave "focus" and "bridge" out. Never force a link.`
+
+// Every question names its concept, so the check-in can show what came up.
+const TOPIC_RULE = `Also add "topic": the concept the question is about, in 2 to 4 plain words (such as "debouncing input").`
+
+const NO_PREFS: TopicPrefs = { more: [], less: [] }
 
 const GRADE_SYSTEM = `You are a kind, exact professor giving feedback on a student's short answer to a review question.
 Open with one verdict word: "Solid.", "Partly." or "Not yet."
@@ -222,13 +243,10 @@ async function recordAnswer($: Api, verdict: Verdict | undefined): Promise<QuizS
   return next
 }
 
-// The log lives in files on disk, not in the plugin's store: the records, a
-// Markdown review rewritten after every answer, and an Anki import file in
-// its own folder. $.fs writes an absolute path as given; ~ is not expanded.
-async function learningDir($: Api): Promise<string> {
-  const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
-  return home === undefined ? 'learning' : `${home}/learning`
-}
+// The log lives in files, not in the plugin's store: in a top-level folder of
+// the project being worked on, so notes sit next to the work they came from.
+const NOTES_DIR = 'learning-galore-notes'
+const learningDir = async ($: Api): Promise<string> => `${await $.session.cwd()}/${NOTES_DIR}`
 
 async function logAnswer($: Api, q: Quiz, verdict: Verdict | undefined) {
   try {
@@ -240,7 +258,7 @@ async function logAnswer($: Api, q: Quiz, verdict: Verdict | undefined) {
 
 async function writeLog($: Api, q: Quiz, verdict: Verdict | undefined) {
   const dir = await learningDir($)
-  const data = `${dir}/session-quiz/answers.json`
+  const data = `${dir}/answers.json`
   let log: LogRecord[] = []
   try {
     const text = await $.fs.read(data)
@@ -256,7 +274,7 @@ async function writeLog($: Api, q: Quiz, verdict: Verdict | undefined) {
   }
   log = appendRecord(log, buildRecord(q, verdict, dayKey(new Date())))
   await $.fs.write(data, JSON.stringify(log))
-  await $.fs.write(`${dir}/session-quiz/review.md`, toMarkdown(log))
+  await $.fs.write(`${dir}/review.md`, toMarkdown(log))
   await $.fs.write(`${dir}/anki/session-quiz.tsv`, toAnki(log))
 }
 
@@ -268,6 +286,33 @@ function statsSummary(t: QuizStats): string {
     `Solid ${t.solid} (${pct(t.solid)}), Partly ${t.partly} (${pct(t.partly)}), Not yet ${t.notYet} (${pct(t.notYet)}).`,
     `Current streak ${liveStreak(t)} ${liveStreak(t) === 1 ? 'day' : 'days'}, best ${t.best}.`,
   ].join(' ')
+}
+
+const savedFocus = async ($: Api): Promise<string[]> => {
+  const saved = await $.store.get('focus')
+  return Array.isArray(saved) ? saved.filter((t): t is string => typeof t === 'string') : []
+}
+
+const savedPrefs = async ($: Api): Promise<TopicPrefs> => ({
+  ...NO_PREFS,
+  ...((await $.store.get('topicPrefs')) as Partial<TopicPrefs> | undefined),
+})
+
+// Tallies what each answered question was about; every CHECKIN_EVERY answers
+// the pane asks whether to see more or less of those topics.
+async function noteTopic($: Api, t: QuizStats) {
+  const q: Quiz = await read($, quiz)
+  const tally = tallyTopic(((await $.store.get('topicTally')) ?? {}) as Record<string, number>, q.topic)
+  await $.store.set('topicTally', tally)
+  if (t.answered % CHECKIN_EVERY === 0 && topTopics(tally).length > 0) await update($, checkin, () => true)
+}
+
+async function saveCheckin($: Api) {
+  const chosen: Record<string, Pick> = await read($, picks)
+  await $.store.set('topicPrefs', applyPicks(await savedPrefs($), chosen))
+  await $.store.set('topicTally', {})
+  await update($, picks, () => ({}))
+  await update($, checkin, () => false)
 }
 
 const openPane = ($: Api) => $.ui.open({ id: PANE, title: 'Quiz' })
@@ -288,11 +333,21 @@ async function askQuestion($: Api) {
 
   const previous: string[] = await read($, asked)
   const move = MOVES[previous.length % MOVES.length]
+  const topics = await savedFocus($)
+  const focusField = topics.length > 0 ? ', "focus": "...", "bridge": "..."' : ''
   const shape =
     format === 'choice'
-      ? `${CHOICE_RULES}\n${SOURCE_RULE}\nReply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "..."}`
-      : `${SOURCE_RULE}\nReply as {"question": "...", "source": "..."}`
-  const prompt = `Recent session:\n<session>\n${context}\n</session>\n\nAlready asked (pick a different concept or angle):\n${previous.slice(-10).join('\n') || '(none)'}\n\nTeaching move for this question: ${move}\n\n${shape}`
+      ? `${CHOICE_RULES}\n${SOURCE_RULE}\n${TOPIC_RULE}\nReply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "...", "topic": "..."${focusField}}`
+      : `${SOURCE_RULE}\n${TOPIC_RULE}\nReply as {"question": "...", "source": "...", "topic": "..."${focusField}}`
+  const prefs = await savedPrefs($)
+  const steer = [
+    prefs.more.length > 0 ? `The student asked for more questions about: ${prefs.more.join(', ')}.` : '',
+    prefs.less.length > 0 ? `The student asked for fewer questions about: ${prefs.less.join(', ')}. Pick another idea when the session offers one.` : '',
+  ].filter(Boolean).join('\n')
+  const focus =
+    (topics.length > 0 ? `Areas the student wants to grow in:\n${topics.join('\n')}\n${FOCUS_RULE}\n\n` : '') +
+    (steer !== '' ? `${steer}\n\n` : '')
+  const prompt = `Recent session:\n<session>\n${context}\n</session>\n\nAlready asked (pick a different concept or angle):\n${previous.slice(-10).join('\n') || '(none)'}\n\nTeaching move for this question: ${move}\n\n${focus}${shape}`
 
   const r = await complete($, {
     model: MODEL,
@@ -325,6 +380,8 @@ async function askQuestion($: Api) {
     correct: isChoice ? order.indexOf(0) : -1,
     explanation: typeof data?.explanation === 'string' ? data.explanation : '',
     source: checkSource(data?.source, session),
+    focus: checkLink(data?.focus, data?.bridge, question, topics),
+    topic: typeof data?.topic === 'string' ? data.topic : '',
   }))
   $.ui.status('A quiz question is waiting')
   // Takes the keyboard only over an empty prompt, so it never interrupts typing.
@@ -420,9 +477,10 @@ async function gradeFree($: Api, answer: string) {
   }))
   // An ungraded answer still counts toward the streak, with no verdict.
   const verdict = r.isAnswered ? verdictOf(r.text) : undefined
-  await recordAnswer($, verdict)
+  const t = await recordAnswer($, verdict)
   if (verdict !== undefined) await recordReview($, await read($, quiz), verdict)
   await logAnswer($, await read($, quiz), verdict)
+  await noteTopic($, t)
   $.ui.status(undefined)
 }
 
@@ -446,9 +504,10 @@ async function submitChoice($: Api) {
   })
   // Unset when the press found no question to answer, so a repeat press never counts twice.
   if (verdict === undefined) return
-  await recordAnswer($, verdict)
+  const t = await recordAnswer($, verdict)
   await recordReview($, done, verdict)
   await logAnswer($, done, verdict)
+  await noteTopic($, t)
   $.ui.status(undefined)
 }
 
@@ -483,7 +542,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'quiz',
-      description: 'Open the Quiz pane. Args: now | review | settings | stats | log | free | choice',
+      description: 'Open the Quiz pane. Args: now | review | focus <areas> | topics | settings | stats | log | free | choice',
     })
     const saved = await $.store.get('settings')
     if (saved !== undefined) await update($, settings, () => ({ ...DEFAULTS, ...(saved as Partial<QuizSettings>) }))
@@ -541,7 +600,7 @@ export const register: Register = on => {
     }
     if (word === 'log') {
       const dir = await learningDir($)
-      return { text: `Your review is in ${dir}/session-quiz/review.md. Anki cards are in ${dir}/anki/session-quiz.tsv; import that file in Anki.` }
+      return { text: `Your review is in ${dir}/review.md. Anki cards are in ${dir}/anki/session-quiz.tsv; import that file in Anki.` }
     }
     if (word === 'review') {
       const queue = await loadQueue($)
@@ -549,8 +608,33 @@ export const register: Register = on => {
       const q: Quiz = await read($, quiz)
       const isBusy = q.status === 'thinking' || q.status === 'grading' || q.status === 'teaching'
       if (isBusy || pickDue(queue, today) === undefined) return { text: reviewSummary(queue, today) }
-      void askQuestion($)
+      // A review needs no model call, so it is ready before the reply.
+      await askQuestion($)
       return { text: `${reviewSummary(queue, today)} Asking the most overdue.` }
+    }
+    if (word === 'topics') {
+      await update($, checkin, () => true)
+      return { text: 'Topic check-in opened in the pane.' }
+    }
+    if (word === 'focus') {
+      const rest = e.args.trim().slice(word.length).trim()
+      if (rest === '') {
+        const topics = await savedFocus($)
+        return {
+          text: topics.length === 0
+            ? 'No focus topics. Add some with /quiz focus <topic>, <topic>.'
+            : `Focus topics: ${topics.join(', ')}.`,
+        }
+      }
+      if (rest === 'clear') {
+        await $.store.delete('focus')
+        return { text: 'Focus topics cleared.' }
+      }
+      const topics = parseFocus(rest)
+      if (topics.length === 0) return { text: 'Usage: /quiz focus <topic>, <topic>' }
+      await $.store.set('focus', topics.slice(0, FOCUS_MAX))
+      const dropped = topics.length > FOCUS_MAX ? ` Kept the first ${FOCUS_MAX}.` : ''
+      return { text: `Focus topics: ${topics.slice(0, FOCUS_MAX).join(', ')}.${dropped}` }
     }
     if (word === 'now') {
       void askQuestion($)
@@ -651,6 +735,46 @@ export const register: Register = on => {
       )
     }
 
+    const isCheckin: boolean = await read($, checkin)
+    if (isCheckin && !isBusy) {
+      const tally = ((await $.store.get('topicTally')) ?? {}) as Record<string, number>
+      const chosen: Record<string, Pick> = await read($, picks)
+      const choose = (topic: string, pick: Pick) =>
+        void update($, picks, cur => {
+          const next = { ...cur }
+          // Pressing the same choice again clears it.
+          if (next[topic] === pick) delete next[topic]
+          else next[topic] = pick
+          return next
+        })
+      return frame(
+        <Text bold>Topic check-in</Text>,
+        <Text dimColor>These came up most since the last check-in. Want more or less of them?</Text>,
+        topTopics(tally).length === 0 && <Text dimColor>No topics yet. Answer a few questions first.</Text>,
+        <Box flexDirection="column" marginTop={1}>
+          {topTopics(tally).map((topic, i) => (
+            <Box key={`topic-${i}`} gap={2}>
+              <Button key={`more-${i}`} plain onPress={() => choose(topic, 'more')}>
+                {chosen[topic] === 'more' ? <Text color={ACCENT} bold>[ More ]</Text> : <Text>[ More ]</Text>}
+              </Button>
+              <Button key={`less-${i}`} plain onPress={() => choose(topic, 'less')}>
+                {chosen[topic] === 'less' ? <Text color={ACCENT} bold>[ Less ]</Text> : <Text>[ Less ]</Text>}
+              </Button>
+              <Text>{topic}</Text>
+            </Box>
+          ))}
+        </Box>,
+        <Box marginTop={1} gap={2}>
+          <Button key="checkin-save" hotkey="v" variant="primary" onPress={() => void saveCheckin($)}>
+            Save
+          </Button>
+          <Button key="checkin-later" onPress={() => void update($, checkin, () => false)}>
+            Not now
+          </Button>
+        </Box>,
+      )
+    }
+
     if (q.status === 'idle') {
       return frame(
         <Text dimColor>A question will show up here while Claude works.</Text>,
@@ -669,6 +793,7 @@ export const register: Register = on => {
       <Text bold>{q.question}</Text>,
       q.source !== '' && <Text dimColor>From: {q.source}</Text>,
       q.reviewFrom !== '' && <Text dimColor>Review from {q.reviewFrom}</Text>,
+      q.focus !== '' && <Text dimColor>Linked to: {q.focus}</Text>,
       q.status === 'asking' && q.format === 'choice' && (
         <Box flexDirection="column" marginTop={1}>
           {q.choices.map((c, i) => (

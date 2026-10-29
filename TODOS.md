@@ -2,7 +2,7 @@
 
 ## Future focus
 
-- **Topics to prioritize.** Let the user name topics they want to get better at (for example "SQL indexes" or "React effects"). When the session touches one of them, the quiz asks about it first. Later, weight topics by how often the user misses questions on them.
+- **Weak topics.** Weight topics by how often the user misses questions on them, so the quiz returns to them. This needs the review log.
 
 ## Later
 
@@ -12,5 +12,6 @@
 
 ## Done
 
-- **Review log.** Each answer is saved, and `/quiz log` writes the log to `~/learning/session-quiz.md`.
-- **Anki export.** `/quiz anki` turns the review log into Anki cards in `~/learning/session-quiz-anki.tsv`.
+- **Review log.** Each answer is written to `learning-galore-notes/review.md` in the project you are working in, outside Claude Code.
+- **Anki export.** Cards are written to `learning-galore-notes/anki/session-quiz.tsv` for import into Anki.
+- **Focus areas.** `/quiz focus` saves up to 5 areas. Questions about your work link to them when there is a real connection, and a topic check-in every 50 answers asks for more or less of each topic.

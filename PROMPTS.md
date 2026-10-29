@@ -36,6 +36,8 @@ Already asked (pick a different concept or angle):
 
 Teaching move for this question: {one move from the list below}
 
+{the focus rule below, only if you named focus topics}
+
 {the format rules below}
 ```
 
@@ -49,6 +51,16 @@ The session text holds each message's text, cut to 600 characters, and one line 
 4. Compare: ask how this approach differs from a close alternative, and when each wins.
 5. Misconception: state a plausible but wrong belief about the idea and ask what is wrong with it.
 6. Teach it: ask the student to explain the idea to a junior developer in two sentences.
+
+**Focus rule** (`FOCUS_RULE`). It is sent only when you have named topics with `/quiz focus`:
+
+```text
+Topics the student wants to get better at:
+{your focus topics, one per line}
+The student also wants to grow in these areas. Always ask about an idea from the session, never about a subject the session does not touch. If the session works on one of these areas directly, ask about that. Otherwise, if an idea from the session has a real, useful link to one of these areas, ask a question that carries the idea into that area: how the same idea shows up there, or what changes when it does. For example, a search box's debounce links to data science through batching a stream of events before a model sees them. Add "focus": that area, copied exactly from the list. If there is no honest link, ask as usual and leave "focus" out. Never force a link.
+```
+
+When it is sent, each format's reply shape below also ends with `, "focus": "..."`. The plugin shows the `Linked to:` line only if the area matches one you saved, ignoring case. Otherwise it shows nothing.
 
 **Format rules.** Both formats start with the source rule (`SOURCE_RULE`):
 
@@ -134,6 +146,7 @@ Longest reply: 350 tokens.
 - **Bloom's levels.** The teaching moves go from explaining, to predicting and applying, to comparing and judging.
 - **Spaced review.** A missed question comes back after 1 day, then 3, 7, and 21 days as you get it right. Recall after a gap, just as the idea starts to fade, makes it last longer than asking again right away. A review question is the saved question itself, so it needs no prompt.
 - **Spreading practice across topics.** The "already asked" list pushes each question to a different concept.
+- **Learner-chosen goals.** Topics you name come first, but only when the session covers them, so every question is still about work you just did.
 - **Misconceptions as wrong choices.** Wrong choices come from real misunderstandings, so a wrong pick shows what to fix.
 - **Specific feedback.** The grade names the exact gap and ends with the key idea.
 - **Worked examples on demand.** After a miss, a short explanation with one concrete example helps more than another question. It comes only when you ask, so it costs nothing when you do not need it.
