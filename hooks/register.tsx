@@ -204,6 +204,12 @@ const setFormat = async ($: Api, fn: (f: Format) => Format) => $.store.set('form
 
 async function askQuestion($: Api) {
   if (isBusy((await read($, quiz)).status)) return
+  // Unlimited unless the person set a daily cap with /quiz limit.
+  const limit = await $.store.get('dailyLimit')
+  if (typeof limit === 'number' && (await tokensToday($)) >= limit) {
+    await update($, quiz, (): Quiz => ({ ...EMPTY, status: 'error', error: `You reached today's limit of ${limit.toLocaleString('en-US')} tokens. Run /quiz limit off to remove it.` }))
+    return
+  }
   const session = await digest($)
   if (session.text.length < 200) {
     await update($, quiz, (): Quiz => ({ ...EMPTY, status: 'error', error: 'Not enough session to ask about yet. A question comes once Claude has replied.' }))
@@ -309,7 +315,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'quiz',
-      description: 'Open the Quiz pane. Args: now | focus <areas> | notes | settings | free | choice',
+      description: 'Open the Quiz pane. Args: now | focus <areas> | notes | limit <tokens>|off | settings | free | choice',
     })
     const saved = await $.store.get('format')
     if (saved === 'free' || saved === 'choice') await update($, format, () => saved)
@@ -337,6 +343,14 @@ export const register: Register = on => {
     if (word === 'free' || word === 'choice') {
       await setFormat($, () => word)
       return { text: `Quiz format: ${word === 'free' ? 'free text' : 'multiple choice'}.` }
+    }
+    if (word === 'limit') {
+      const n = Number(rest.replace(/,/g, ''))
+      if (rest === 'off') await $.store.delete('dailyLimit')
+      else if (Number.isInteger(n) && n > 0) await $.store.set('dailyLimit', n)
+      else if (rest !== '') return { text: 'Usage: /quiz limit <tokens per day> or /quiz limit off' }
+      const limit = await $.store.get('dailyLimit')
+      return { text: typeof limit === 'number' ? `Daily limit: ${limit.toLocaleString('en-US')} tokens.` : 'No limit. The quiz never stops you.' }
     }
     if (word === 'settings') {
       await update($, showSettings, () => true)
