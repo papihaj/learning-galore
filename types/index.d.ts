@@ -12,6 +12,7 @@ export type Quiz = {
   explanation: string
   answer: string
   draft: string
+  lines: string[]
   feedback: string
   verdict?: Verdict
   lesson: string
@@ -22,8 +23,6 @@ export type Quiz = {
   definition: string
 }
 
-// One answered question, kept on disk in <project>/learning-galore-notes.
-// `day` is the local date (YYYY-MM-DD); `right` is set for multiple choice.
 export type Note = {
   day: string
   question: string

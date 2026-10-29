@@ -1,7 +1,6 @@
 import type { Note, Quiz } from '../types'
 import { redact } from './redact'
 
-// Years of answers, and well under the 4 MiB a single file read allows.
 export const NOTES_MAX = 2000
 
 const LABELS: Record<Note['verdict'], string> = {
@@ -13,8 +12,6 @@ const LABELS: Record<Note['verdict'], string> = {
 
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
 
-// The answer is typed by hand with no redaction before it, and the feedback
-// can quote it back, so both are cleaned before they are written to disk.
 export function buildNote(q: Quiz, day: string): Note {
   return {
     day,
@@ -31,8 +28,6 @@ export function buildNote(q: Quiz, day: string): Note {
 
 export const appendNote = (notes: Note[], n: Note) => [...notes, n].slice(-NOTES_MAX)
 
-// A term's latest graded answer decides where it goes: a Solid puts it with
-// the known terms, a Partly or Not yet with the ones to work on.
 export function sortTerms(notes: Note[]): { strong: string[]; weak: string[] } {
   const latest = new Map<string, Note['verdict']>()
   for (const n of notes) if (n.term !== '' && n.verdict !== 'ungraded') latest.set(n.term, n.verdict)
@@ -54,8 +49,6 @@ function entry(n: Note): string {
   return lines.join('\n')
 }
 
-// Terms first, so the file opens on what to study; then every question,
-// newest day first.
 export function toMarkdown(notes: Note[]): string {
   const definitions = new Map<string, string>()
   for (const n of notes) if (n.term !== '' && n.definition !== '') definitions.set(n.term, n.definition)

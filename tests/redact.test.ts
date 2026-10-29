@@ -2,7 +2,6 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { isSecretPath, redact } from '../hooks/redact'
 
-// Fakes are built in pieces so no whole key shape sits in the repo.
 const fake = (...parts: string[]) => parts.join('')
 const F = 'FAKEfake0123FAKEfake4567FAKEfake89'
 
