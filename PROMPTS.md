@@ -12,6 +12,7 @@ Every call uses `effort: low` and a 30-second timeout.
 You are a professor who teaches software engineering well. Your student is a developer who just worked through the session below with a coding assistant. You write one review question that makes them retrieve and reason about the ideas behind that work, so they keep it.
 
 How you teach:
+- Build the question around one key concept behind what the developer is building: an idea from systems design, architecture or engineering practice that they should understand while they build, such as debounce, idempotency, a composite index, cache invalidation or a message queue. Ask what it means and why it matters in what they are building, in their own words.
 - Ask only about the big, central ideas of the session: the concepts a senior engineer would want the student to still know in a year. Skip small details, syntax, configuration, and trivia (file names, exact code, what the assistant said).
 - The question must be answerable from understanding alone, in one or two sentences (under 280 characters). If an idea needs a long essay, ask about one part of it.
 - Ask for reasons: "why", "how", "what would happen if", "when would you not". A question answerable by recalling one word is too shallow.
@@ -50,26 +51,29 @@ The session text holds each message's text, cut to 600 characters, and one line 
 5. Misconception: state a plausible but wrong belief about the idea and ask what is wrong with it.
 6. Teach it: ask the student to explain the idea to a junior developer in two sentences.
 
-**Format rules.** Both formats start with the source rule (`SOURCE_RULE`):
+**Format rules.** Both formats start with the source rule (`SOURCE_RULE`) and the term rule (`TERM_RULE`):
 
 ```text
 Optionally add "source": the one file the concept came from, copied exactly from a "tool ...: <path>" line in the session. Add ":<line>" only if the session itself shows that file with that line number. Leave "source" out if no file fits.
+Also add "term": that key concept, named in 1 to 4 words as an engineer would name it (such as "debounce" or "event-driven architecture"), and "definition": what it means, in one plain sentence.
 ```
 
 For free text:
 
 ```text
-Reply as {"question": "...", "source": "..."}
+Reply as {"question": "...", "source": "...", "term": "...", "definition": "..."}
 ```
 
 For multiple choice (`CHOICE_RULES`):
 
 ```text
 For multiple choice: four options; the right one is listed first (it is shuffled later). Each wrong option is a misconception a real student holds, plausible to someone who half understands. All four have similar length, detail, and grammar, so length or tone never gives the answer away. No "all of the above" or "none of the above". The explanation says why the right one is right and what the most tempting wrong one gets wrong, in one or two sentences.
-Reply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "..."}
+Reply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "...", "term": "...", "definition": "..."}
 ```
 
 The plugin checks the source before showing it. It keeps the path only if a tool call in the session used that file, and keeps a line number only if the session's text or tool output contains that exact `path:line`. Otherwise it shows the path alone, or nothing.
+
+The pane shows the term and its definition only after the student answers, so it never gives the answer away. The notes file lists every key term with its latest definition.
 
 The plugin shuffles the choices, because models put the right answer in the same place too often. It checks multiple-choice answers itself, with no second model call.
 

@@ -1,4 +1,3 @@
-export const FOCUS_MAX = 5
 const TOPIC_CHARS = 60
 
 // "SQL indexes, React effects" becomes two topics. A repeat in other case
@@ -12,22 +11,14 @@ export function parseFocus(args: string): string[] {
   return topics
 }
 
-// The model may name a topic that was never saved; show only a saved one,
-// in the person's own spelling.
-export function checkFocus(given: unknown, topics: string[]): string {
-  if (typeof given !== 'string') return ''
-  const wanted = given.trim().toLowerCase()
-  return topics.find(t => t.toLowerCase() === wanted) ?? ''
-}
-
-// A linked question has to say how the session's idea lands in the area. The
-// bridge phrase must show up in the question itself, or the link is only a label.
+// The model may name an area that was never saved, or claim a link the
+// question never makes: keep only a saved area, in the person's own spelling,
+// whose bridge phrase shows up in the question itself.
 export function checkLink(given: unknown, bridge: unknown, question: string, topics: string[]): string {
-  const area = checkFocus(given, topics)
-  if (area === '' || typeof bridge !== 'string') return ''
+  if (typeof given !== 'string' || typeof bridge !== 'string') return ''
+  const area = topics.find(t => t.toLowerCase() === given.trim().toLowerCase())
   const words = bridge.toLowerCase().match(/[a-z][a-z-]{3,}/g) ?? []
-  const text = question.toLowerCase()
-  if (!words.some(w => text.includes(w))) return ''
+  if (area === undefined || !words.some(w => question.toLowerCase().includes(w))) return ''
   const phrase = bridge.trim().replace(/\s+/g, ' ')
   // Cut at a word so a long bridge never ends mid-word.
   const short = phrase.length <= TOPIC_CHARS ? phrase : phrase.slice(0, TOPIC_CHARS).replace(/\s+\S*$/, '')

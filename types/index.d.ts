@@ -1,5 +1,7 @@
 export type Format = 'free' | 'choice'
 
+export type Verdict = 'solid' | 'partly' | 'notYet'
+
 export type Quiz = {
   status: 'idle' | 'thinking' | 'asking' | 'grading' | 'answered' | 'teaching' | 'taught' | 'error'
   format: Format
@@ -11,28 +13,22 @@ export type Quiz = {
   answer: string
   draft: string
   feedback: string
+  verdict?: Verdict
   lesson: string
   error: string
   source: string
   focus: string
-  topic: string
+  term: string
+  definition: string
 }
-
-export type QuizUsage = { tokens: number; questions: number }
-
-export type QuizSettings = { format: Format }
-
-// Tokens spent per local day (YYYY-MM-DD), kept in $.store for the Settings view.
-export type TokenLog = Record<string, number>
-
-export type Verdict = 'solid' | 'partly' | 'notYet'
 
 // One answered question, kept on disk in <project>/learning-galore-notes.
 // `day` is the local date (YYYY-MM-DD); `right` is set for multiple choice.
 export type Note = {
   day: string
   question: string
-  topic: string
+  term: string
+  definition: string
   answer: string
   verdict: Verdict | 'ungraded'
   feedback: string
@@ -44,11 +40,10 @@ declare module 'claude-code' {
   interface PluginState {
     'session-quiz': {
       quiz: Shaped<Quiz>
-      usage: Shaped<QuizUsage>
-      settings: Shaped<QuizSettings>
+      format: Shaped<Format>
       asked: Shaped<string[]>
       showSettings: Shaped<boolean>
-      tokenLog: Shaped<TokenLog>
+      sessionTokens: Shaped<number>
     }
   }
 }
