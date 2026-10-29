@@ -20,7 +20,7 @@ In Claude Code, run:
 
 ## Use it
 
-Use Claude Code normally. When a question is waiting, open it with `/quiz` and answer. Your terms are saved to `learning-galore-notes/notes.md` in your project.
+Use Claude Code normally. When a question is waiting, open it with `/quiz`, then answer in the prompt with `/answer your answer` (or `/answer 2` for multiple choice). Your terms are saved to `learning-galore-notes/notes.md` in your project.
 
 | Command | What it does |
 |---|---|

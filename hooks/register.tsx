@@ -19,7 +19,6 @@ const EMPTY: Quiz = {
   selected: -1,
   explanation: '',
   answer: '',
-  draft: '',
   feedback: '',
   lesson: '',
   error: '',
@@ -198,7 +197,7 @@ const savedFocus = async ($: Api): Promise<string[]> => {
   return Array.isArray(saved) ? saved.filter((t): t is string => typeof t === 'string') : []
 }
 
-const openPane = ($: Api, focus?: true) => $.ui.open({ id: PANE, title: 'Quiz', focus })
+const openPane = ($: Api, focus = false) => $.ui.open({ id: PANE, title: 'Quiz', ...(focus ? { focus: true } : {}) })
 
 const setFormat = async ($: Api, fn: (f: Format) => Format) => $.store.set('format', await update($, format, fn))
 
@@ -253,8 +252,9 @@ async function askQuestion($: Api) {
     term: str(data?.term).trim(),
     definition: str(data?.definition).trim(),
   }))
-  // Takes the keyboard only over an empty prompt, so it never interrupts typing.
-  void openPane($, true)
+  // A free-text answer is typed in the prompt, so only multiple choice takes
+  // the pane's keyboard (and only over an empty prompt).
+  void openPane($, isChoice)
 }
 
 const verdictOf = (feedback: string): Verdict | undefined => {
@@ -265,6 +265,7 @@ const verdictOf = (feedback: string): Verdict | undefined => {
 async function gradeFree($: Api, answer: string) {
   const q: Quiz = await read($, quiz)
   if (q.status !== 'asking' || answer.trim() === '') return
+  answer = answer.slice(0, ANSWER_CHARS)
   await update($, quiz, (cur): Quiz => ({ ...cur, status: 'grading', answer }))
   const feedback = await haiku($, GRADE_SYSTEM, `Question: ${q.question}\n\nAnswer: ${answer}`, 300)
   const done = await update($, quiz, (cur): Quiz => ({
@@ -317,6 +318,7 @@ export const register: Register = on => {
       name: 'quiz',
       description: 'Open the Quiz pane. Args: now | focus <areas> | notes | limit <tokens>|off | settings | free | choice',
     })
+    await $.command.register({ name: 'answer', description: 'Answer the quiz question: your answer, or 1-4 for multiple choice' })
     const saved = await $.store.get('format')
     if (saved === 'free' || saved === 'choice') await update($, format, () => saved)
     // A reload drops any model call in flight; state survives it, so settle
@@ -334,6 +336,23 @@ export const register: Register = on => {
       $.clock.after(0, () => void askQuestion($))
     }
     return next(e)
+  })
+
+  // The prompt box wraps and edits a long answer; the pane's field cannot.
+  on('command.run', { command: 'answer' }, async ($, e) => {
+    const q: Quiz = await read($, quiz)
+    const text = e.args.trim()
+    if (q.status !== 'asking') return { text: 'No quiz question is waiting.' }
+    if (text === '') return { text: 'Type your answer after /answer.' }
+    if (q.format === 'choice') {
+      const pick = Number(text) - 1
+      if (!(pick >= 0 && pick < q.choices.length)) return { text: `Answer with a number from 1 to ${q.choices.length}.` }
+      await update($, quiz, (cur): Quiz => ({ ...cur, selected: pick }))
+      await submitChoice($)
+      return { text: 'Answered. The feedback is in the Quiz pane.' }
+    }
+    void gradeFree($, text)
+    return { text: 'Checking your answer. The feedback will show in the Quiz pane.' }
   })
 
   on('command.run', { command: 'quiz' }, async ($, e) => {
@@ -375,8 +394,6 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
-    // Mobile draws no text fields.
-    const Input = 'Input' in els ? els.Input : undefined
     const q: Quiz = await read($, quiz)
     const fmt: Format = await read($, format)
     const isSettings: boolean = await read($, showSettings)
@@ -385,11 +402,8 @@ export const register: Register = on => {
     // submitted an answer has nothing to land on.
     const busy = isBusy(q.status)
     const asking = q.status === 'asking'
-    const typing = asking && q.format === 'free' && Input !== undefined
     const width = Math.max(0, e.props.bodyColumns - 4)
     const rule = <Text dimColor>{'─'.repeat(width)}</Text>
-    // The field's text area: the pane width less the padding, border and hint.
-    const fieldWidth = Math.max(0, width - 10)
     const step: number = await read($, petStep)
     const pet = petAt(step, width - CAT_WIDTH - 1)
 
@@ -426,26 +440,10 @@ export const register: Register = on => {
                 ))}
               </Box>
             )}
-            {asking && q.format === 'free' && Input === undefined && <Text dimColor>Free-text answers need the terminal or desktop app.</Text>}
-            {typing && Input !== undefined && (
+            {asking && q.format === 'free' && (
               <Box marginTop={1} flexDirection="column">
-                <Text dimColor>Your answer</Text>
-                <Box borderStyle="round" borderColor="claude" paddingX={1}>
-                  <Input
-                    // A new key per question gives each one an empty field.
-                    key={`answer-${q.question}`}
-                    placeholder="Type your answer"
-                    rows={1}
-                    autoFocus
-                    submitLabel=""
-                    value={q.draft}
-                    onInput={(value: string) => void update($, quiz, (cur): Quiz => ({ ...cur, draft: value.slice(0, ANSWER_CHARS) }))}
-                    onSubmit={(value: string) => void gradeFree($, value.slice(0, ANSWER_CHARS))}
-                  />
-                </Box>
-                {/* The field scrolls a long line sideways; show the whole answer wrapped. */}
-                {q.draft.length > fieldWidth && <Text dimColor>{q.draft}</Text>}
-                {q.draft.length >= ANSWER_CHARS && <Text dimColor>That is as long as an answer can be. Keep it short.</Text>}
+                <Text dimColor>Answer in the prompt:</Text>
+                <Text color="claude">/answer <Text dimColor>your answer</Text></Text>
               </Box>
             )}
             {(q.status === 'answered' || q.status === 'teaching' || q.status === 'taught') && (
@@ -481,11 +479,6 @@ export const register: Register = on => {
             {(q.status === 'idle' || q.status === 'error') && (
               <Button key="now" hotkey="n" variant="primary" onPress={() => void askQuestion($)}>
                 {q.status === 'idle' ? 'Ask me now' : 'Try again'}
-              </Button>
-            )}
-            {typing && (
-              <Button key="send" variant="primary" onPress={() => void gradeFree($, q.draft)}>
-                Submit
               </Button>
             )}
             {asking && q.format === 'choice' && (
@@ -528,7 +521,7 @@ export const register: Register = on => {
               )}
             </Box>
           )}
-          {!e.props.isFocused && <Text dimColor>ctrl+x tab to answer here</Text>}
+          {!e.props.isFocused && !(asking && q.format === 'free') && <Text dimColor>ctrl+x tab to use the pane</Text>}
         </Box>
         <Box flexDirection="column" marginTop={1}>
           <Text color="claude">{' '.repeat(pet.right ? pet.x + 1 : pet.x)}{CAT_TOP}</Text>
