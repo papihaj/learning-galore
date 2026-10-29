@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Api, Register, RenderChildren } from 'claude-code'
 
 import type { Format, Quiz, QuizSettings, QuizUsage } from '../types'
+import { isSecretPath, redact } from './redact'
 
 const PANE = 'session-quiz'
 const MODEL = 'haiku'
@@ -82,10 +83,13 @@ async function digest($: Api): Promise<string> {
   const rows = await $.session.messages()
   const lines: string[] = []
   for (const m of rows.slice(-40)) {
-    if (m.text.trim() !== '') lines.push(`${m.role}: ${clip(m.text.trim(), 600)}`)
+    // Redact before clipping, so a cut never leaves half a key behind.
+    if (m.text.trim() !== '') lines.push(`${m.role}: ${clip(redact(m.text.trim()), 600)}`)
     for (const t of m.toolUses) {
+      const path = t.input.file_path ?? t.input.path
+      if (typeof path === 'string' && isSecretPath(path)) continue
       const target = t.input.file_path ?? t.input.command ?? t.input.pattern ?? ''
-      lines.push(`tool ${t.tool}: ${clip(String(target), 120)}`)
+      lines.push(`tool ${t.tool}: ${clip(redact(String(target)), 120)}`)
     }
   }
   const text = lines.join('\n')
