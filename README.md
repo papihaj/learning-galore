@@ -47,7 +47,7 @@ In the desktop app, click **+** next to the prompt box, then **Plugins**, **Add 
    - **Free text:** type up to 280 characters, then press Enter or **Submit**. Long answers show in full under the box.
    - **Multiple choice:** press **1** to **4** to select an answer. You can change your choice. Then press **a** or **Submit**.
 4. Read the feedback, then press **Next question**, or go back to your work. A new question comes the next time Claude starts working.
-5. If you missed the question (a wrong pick, or feedback that starts with "Partly." or "Not yet."), press **d** or **Go deeper** for a short lesson on the gap: the core idea, one example, and the one thing to remember. It shows under the feedback.
+5. If you missed the question (a wrong pick, or feedback that starts with "Partly." or "Not yet."), press **d** or **Go deeper** for a short lesson on the gap: the core idea, one example, and the one thing to remember, in at most 90 words. It shows under the feedback.
 
 Press **s** to skip a question, **f** to switch between free text and multiple choice, and **g** to open Settings.
 
@@ -73,6 +73,12 @@ Name up to 5 topics you want to get better at, separated by commas:
 ```
 
 These are areas you want to grow in, and they do not need to match what you are working on. The question always stays on an idea from your session, but when that idea has a real link to one of your areas, the question carries it there. For example, while you build a search box with a `data science` focus, you might get: "Debouncing waits for a pause before acting. Where does the same idea show up when you batch a stream of events before a model sees them?" A dim line such as `Linked to: data science` shows under the question. When the session works on an area directly, the question asks about it. When there is no honest link, the question is chosen as usual. Run `/quiz focus` to see your topics and `/quiz focus clear` to remove them. Topics are saved across sessions.
+
+### Difficulty
+
+Questions come in three levels. Level 1 asks you to explain a core idea in a familiar setting. Level 2 asks you to apply it to a new scenario. Level 3 asks you to weigh a trade-off, an edge case, or a failure mode. The footer of the pane shows the level, such as `Level 2 of 3`.
+
+Each session starts from your last 5 answers: level 3 if 4 or more were Solid, level 1 if 4 or more were misses, and level 2 otherwise. Two Solid answers in a row move you up a level, and two misses in a row move you down. Run `/quiz level 3` to keep it at one level, and the footer adds `, pinned`. Run `/quiz level auto` to let it move again from where it was.
 
 The first prompt of a session gives no question, because there is nothing to ask about yet.
 >>>>>>> origin/idea/focus-topics
@@ -129,6 +135,7 @@ The review log stays on your computer, in the plugin's store under your Claude C
 >>>>>>> origin/idea/focus-topics
 | `/quiz free` | Use free-text questions. |
 | `/quiz choice` | Use multiple-choice questions. |
+<<<<<<< HEAD
 
 <<<<<<< HEAD
 The format, stats, daily token counts, and review queue are saved across sessions. The pane shows no counts while you answer; press **g** in the pane, or run `/quiz settings`, to see them.
@@ -143,6 +150,19 @@ The format, question limit, token budget, focus topics, and stats are saved acro
 
 Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file and focus topic come back in the same reply, so they add no call. Focus topics add a few dozen tokens to each question. A multiple-choice answer is checked by the plugin, with no second call. **Go deeper** makes one more call, only when you press it, of about 300 to 600 tokens. It counts toward the token budget but not the question limit. On a Claude subscription, the calls count toward your plan's usage limits.
 >>>>>>> origin/idea/focus-topics
+=======
+| `/quiz level 3` | Keep questions at level 3. Use 1, 2, or 3. |
+| `/quiz level auto` | Let the level follow your answers. This is the default. |
+| `/quiz max 5` | Ask at most 5 questions per session. The default is 10. |
+| `/quiz budget 30000` | Use at most 30,000 tokens per session. The default is 20,000. |
+| `/quiz reset` | Reset this session's question and token count. |
+
+The format, level setting, question limit, token budget, and stats are saved across sessions. `/quiz reset` does not clear stats.
+
+### Cost
+
+Each question costs about 300 to 1,000 tokens with its grade. Most of that is the session text sent to Haiku. The source file comes back in the same reply, so it adds no call. A multiple-choice answer is checked by the plugin, with no second call. **Go deeper** makes one more call, only when you press it, of about 300 to 500 tokens. It counts toward the token budget but not the question limit. On a Claude subscription, the calls count toward your plan's usage limits.
+>>>>>>> origin/pr-8
 
 ### In the code
 
@@ -153,17 +173,25 @@ All of these are constants at the top of [`hooks/register.tsx`](hooks/register.t
 | `MODEL` | `haiku` | The model that writes and grades questions. |
 | `ASK_MAX_TOKENS` | 400 | Longest reply when making a question. |
 | `GRADE_MAX_TOKENS` | 300 | Longest reply when grading. |
-| `LESSON_MAX_TOKENS` | 350 | Longest reply for a **Go deeper** lesson. |
+| `LESSON_MAX_TOKENS` | 250 | Longest reply for a **Go deeper** lesson. |
 | `CONTEXT_CHARS` | 6000 | How much of the session is sent to make a question. |
 | `ANSWER_CHARS` | 280 | Longest free-text answer. |
+<<<<<<< HEAD
 | `DEFAULTS` | free text | The format before you change it. |
+=======
+| `DEFAULTS` | free text, 20,000 tokens, 10 questions, level auto | Settings before you change them with `/quiz`. |
+>>>>>>> origin/pr-8
 | `ACCENT` | `claude` | The accent color, a theme key or a hex color such as `#e0a35a`. A theme key follows your Claude Code theme. |
 
 The review gaps and queue size are `INTERVALS` (1, 3, 7, 21 days) and `QUEUE_MAX` (50) in [`hooks/review.ts`](hooks/review.ts).
 
 ### Prompts
 
+<<<<<<< HEAD
 The prompts that make and grade questions and write **Go deeper** lessons are in [`PROMPTS.md`](PROMPTS.md), with the teaching ideas behind them. Edit the constants `ASK_SYSTEM`, `MOVES`, `CHOICE_RULES`, `SOURCE_RULE`, `FOCUS_RULE`, `GRADE_SYSTEM`, and `LESSON_SYSTEM` in `hooks/register.tsx` to change them.
+=======
+The prompts that make and grade questions and write **Go deeper** lessons are in [`PROMPTS.md`](PROMPTS.md), with the teaching ideas behind them. Edit the constants `ASK_SYSTEM`, `MOVES`, `LEVELS`, `CHOICE_RULES`, `SOURCE_RULE`, `GRADE_SYSTEM`, and `LESSON_SYSTEM` in `hooks/register.tsx` to change them.
+>>>>>>> origin/pr-8
 
 ## Develop
 

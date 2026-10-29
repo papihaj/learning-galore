@@ -37,6 +37,7 @@ Already asked (pick a different concept or angle):
 Teaching move for this question: {one move from the list below}
 
 {the focus rule below, only if you named focus topics}
+Difficulty, whatever the move: {one level from the list below}
 
 {the format rules below}
 ```
@@ -61,6 +62,11 @@ The student also wants to grow in these areas. Always ask about an idea from the
 ```
 
 When it is sent, each format's reply shape below also ends with `, "focus": "..."`. The plugin shows the `Linked to:` line only if the area matches one you saved, ignoring case. Otherwise it shows nothing.
+**Levels** (`LEVELS`). The move picks the kind of question, and the level picks how hard it is. The session starts at a level set by your last 5 answers across sessions: level 3 if 4 or more were Solid, level 1 if 4 or more were misses, and level 2 otherwise. Two Solid answers in a row step it up, and two misses in a row step it down. A miss is a Partly or a Not yet. `/quiz level` pins it.
+
+1. Level 1 of 3: explain a core idea in a familiar setting, close to the session.
+2. Level 2 of 3: apply the idea to a new, concrete scenario.
+3. Level 3 of 3: analyze a trade-off, edge case, or failure mode an experienced engineer would weigh.
 
 **Format rules.** Both formats start with the source rule (`SOURCE_RULE`):
 
@@ -116,12 +122,12 @@ After a miss (a wrong pick, or a grade that opens with "Partly." or "Not yet."),
 **System prompt** (`LESSON_SYSTEM`):
 
 ```text
-You are a kind, exact professor. Your student just missed part of a review question, and asked you to go deeper. You write a short micro-lesson on exactly the gap their answer shows, so they get it right next time.
-First, the core idea in plain words: what is true, and why.
-Then one concrete example that makes it click. Use a tiny code snippet only if it truly helps, at most 5 lines, on its own lines with no fences.
-End with the one thing to remember, in one plain sentence that starts with "Remember:".
-Do not repeat the question or the feedback. Do not ask the student anything: they cannot reply.
-At most 120 words in all. Plain text, no headings, no lists, no markdown.
+You are a kind, exact professor. Your student just missed part of a review question, and asked you to go deeper. You write a short micro-lesson on exactly the gap their answer shows, so they get it right next time. It shows in a small pane, so it must be at most 90 words; three short paragraphs.
+First, the core idea in plain words: what is true, and why. At most two short sentences.
+Then one concrete example that makes it click. At most two short sentences, or a tiny code snippet of at most 3 lines, on its own lines with no fences.
+Last, the one thing to remember, in one short sentence that starts with "Remember:".
+Keep each sentence under 18 words. Do not repeat the question, the feedback, or the right answer. Do not ask the student anything: they cannot reply.
+Plain text, no headings, no lists, no markdown. At most 90 words in all.
 ```
 
 **User message:**
@@ -136,7 +142,7 @@ Right answer: {multiple choice only: the right choice}
 Feedback they got: {the feedback}
 ```
 
-Longest reply: 350 tokens.
+Longest reply: 250 tokens.
 
 ## The teaching ideas behind the prompts
 
@@ -145,6 +151,7 @@ Longest reply: 350 tokens.
 - **Transfer.** Using an idea in a new setting shows you understand it, not just that you remember the session.
 - **Bloom's levels.** The teaching moves go from explaining, to predicting and applying, to comparing and judging.
 - **Spaced review.** A missed question comes back after 1 day, then 3, 7, and 21 days as you get it right. Recall after a gap, just as the idea starts to fade, makes it last longer than asking again right away. A review question is the saved question itself, so it needs no prompt.
+- **Desirable difficulty.** Practice works best when it is hard enough to take effort but easy enough to get mostly right. The level rises after two Solid answers and falls after two misses to stay in that range.
 - **Spreading practice across topics.** The "already asked" list pushes each question to a different concept.
 - **Learner-chosen goals.** Topics you name come first, but only when the session covers them, so every question is still about work you just did.
 - **Misconceptions as wrong choices.** Wrong choices come from real misunderstandings, so a wrong pick shows what to fix.
