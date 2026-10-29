@@ -45,6 +45,12 @@ Press **s** to skip a question and **f** to switch between free text and multipl
 
 The first prompt of a session gives no question, because there is nothing to ask about yet.
 
+### Streaks and stats
+
+The plugin counts every answer across sessions. Once you have answered a question, the top of the pane shows your streak and total, such as `3-day streak · 12 answered`. A streak is the number of days in a row, by your local date, with at least one answer. It ends when a whole day passes with no answer. After each answer, the status line shows your streak until the next question.
+
+Each answer is tallied as Solid, Partly, or Not yet. A free-text answer takes the first word of its grade. A multiple-choice answer is Solid when it is right and Not yet when it is wrong. Run `/quiz stats` to see the totals.
+
 ## Privacy
 
 To make a question, the plugin sends Haiku a short digest of the session: the text of the last 40 messages, each cut to 600 characters, and one line per tool call with its file path, command, or search pattern. A tool call shows only as that line, not its output. The digest is at most 6,000 characters. To grade a free-text answer, it sends only the question and your answer.
@@ -67,13 +73,14 @@ Tool calls on secrets files (`.env`, `.env.*`, `*.pem`, `id_rsa*`, `credentials*
 | --- | --- |
 | `/quiz` | Open the pane and show this session's usage. |
 | `/quiz now` | Ask a question now. |
+| `/quiz stats` | Show your answers, Solid, Partly, and Not yet counts, and your current and best streak. |
 | `/quiz free` | Use free-text questions. |
 | `/quiz choice` | Use multiple-choice questions. |
 | `/quiz max 5` | Ask at most 5 questions per session. The default is 10. |
 | `/quiz budget 30000` | Use at most 30,000 tokens per session. The default is 20,000. |
 | `/quiz reset` | Reset this session's question and token count. |
 
-The format, question limit, and token budget are saved across sessions.
+The format, question limit, token budget, and stats are saved across sessions. `/quiz reset` does not clear stats.
 
 ### Cost
 

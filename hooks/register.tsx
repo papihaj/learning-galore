@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Api, Register, RenderChildren } from 'claude-code'
 
-import type { Format, Quiz, QuizSettings, QuizUsage } from '../types'
+import type { Format, Quiz, QuizSettings, QuizStats, QuizUsage, Verdict } from '../types'
 import { isSecretPath, redact } from './redact'
 
 const PANE = 'session-quiz'
@@ -26,6 +26,7 @@ const EMPTY: Quiz = {
   error: '',
 }
 const DEFAULTS: QuizSettings = { format: 'free', budget: 20000, maxQuestions: 10 }
+const NO_STATS: QuizStats = { answered: 0, solid: 0, partly: 0, notYet: 0, streak: 0, best: 0, lastDay: '' }
 
 const quiz = atom({ plugin: 'session-quiz', key: 'quiz' } as const, EMPTY, {
   shape: 'quiz-3',
@@ -42,6 +43,10 @@ const settings = atom(
 )
 const asked = atom({ plugin: 'session-quiz', key: 'asked' } as const, [], {
   shape: 'asked-1',
+})
+// A copy of the stored stats, so the pane redraws when they change.
+const stats = atom({ plugin: 'session-quiz', key: 'stats' } as const, NO_STATS, {
+  shape: 'stats-1',
 })
 
 // How a good lecturer would review the session: retrieval practice, rotated
@@ -135,6 +140,55 @@ async function overBudget($: Api): Promise<string | undefined> {
   return undefined
 }
 
+// Local date, so a streak day ends at the person's midnight, not UTC's.
+const dayKey = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const yesterday = () => {
+  const d = new Date()
+  return dayKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1))
+}
+
+// A streak stays alive until a whole day passes with no answer.
+const liveStreak = (t: QuizStats) => (t.lastDay === dayKey(new Date()) || t.lastDay === yesterday() ? t.streak : 0)
+
+const verdictOf = (feedback: string): Verdict | undefined => {
+  const word = feedback.trim().toLowerCase()
+  if (word.startsWith('solid')) return 'solid'
+  if (word.startsWith('partly')) return 'partly'
+  if (word.startsWith('not yet')) return 'notYet'
+  return undefined
+}
+
+// Reads the store fresh, so two sessions answering on one day both count.
+async function recordAnswer($: Api, verdict: Verdict | undefined): Promise<QuizStats> {
+  const t: QuizStats = { ...NO_STATS, ...((await $.store.get('stats')) as Partial<QuizStats> | undefined) }
+  const today = dayKey(new Date())
+  const streak = t.lastDay === today ? t.streak : t.lastDay === yesterday() ? t.streak + 1 : 1
+  const next: QuizStats = {
+    ...t,
+    answered: t.answered + 1,
+    ...(verdict === undefined ? {} : { [verdict]: t[verdict] + 1 }),
+    streak,
+    best: Math.max(t.best, streak),
+    lastDay: today,
+  }
+  await $.store.set('stats', next)
+  await update($, stats, () => next)
+  return next
+}
+
+const streakText = (t: QuizStats) => `${liveStreak(t)}-day streak`
+
+function statsSummary(t: QuizStats): string {
+  if (t.answered === 0) return 'No quiz answers yet. Answer a question to start a streak.'
+  const pct = (n: number) => `${Math.round((n / t.answered) * 100)}%`
+  return [
+    `Answered ${t.answered}.`,
+    `Solid ${t.solid} (${pct(t.solid)}), Partly ${t.partly} (${pct(t.partly)}), Not yet ${t.notYet} (${pct(t.notYet)}).`,
+    `Current streak ${liveStreak(t)} ${liveStreak(t) === 1 ? 'day' : 'days'}, best ${t.best}.`,
+  ].join(' ')
+}
+
 const openPane = ($: Api) => $.ui.open({ id: PANE, title: 'Quiz' })
 
 async function askQuestion($: Api) {
@@ -152,6 +206,7 @@ async function askQuestion($: Api) {
   }
   const { format }: QuizSettings = await read($, settings)
   await update($, quiz, (): Quiz => ({ ...EMPTY, status: 'thinking', format }))
+  $.ui.status(undefined)
 
   const previous: string[] = await read($, asked)
   const move = MOVES[previous.length % MOVES.length]
@@ -217,17 +272,21 @@ async function gradeFree($: Api, answer: string) {
     status: 'answered',
     feedback: r.isAnswered ? r.text.trim() : 'Could not grade this one, but thanks for answering.',
   }))
-  $.ui.status(stop)
+  // An ungraded answer still counts toward the streak, with no verdict.
+  const t = await recordAnswer($, r.isAnswered ? verdictOf(r.text) : undefined)
+  $.ui.status(stop ?? `Quiz: ${streakText(t)}`)
 }
 
 const selectChoice = ($: Api, index: number) =>
   update($, quiz, (cur): Quiz => (cur.status === 'asking' ? { ...cur, selected: index } : cur))
 
 async function submitChoice($: Api) {
+  let verdict: Verdict | undefined
   await update($, quiz, (cur): Quiz => {
     const index = cur.selected
     if (cur.status !== 'asking' || index < 0) return cur
     const isRight = index === cur.correct
+    verdict = isRight ? 'solid' : 'notYet'
     const right = cur.choices[cur.correct] ?? ''
     return {
       ...cur,
@@ -236,7 +295,10 @@ async function submitChoice($: Api) {
       feedback: `${isRight ? 'Solid.' : `Not yet. The answer is: ${right}`} ${cur.explanation}`.trim(),
     }
   })
-  $.ui.status(undefined)
+  // Unset when the press found no question to answer, so a repeat press never counts twice.
+  if (verdict === undefined) return
+  const t = await recordAnswer($, verdict)
+  $.ui.status(`Quiz: ${streakText(t)}`)
 }
 
 
@@ -244,10 +306,12 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'quiz',
-      description: 'Open the Quiz pane. Args: now | free | choice | budget <tokens> | max <questions> | reset',
+      description: 'Open the Quiz pane. Args: now | stats | free | choice | budget <tokens> | max <questions> | reset',
     })
     const saved = await $.store.get('settings')
     if (saved !== undefined) await update($, settings, () => ({ ...DEFAULTS, ...(saved as Partial<QuizSettings>) }))
+    const savedStats = await $.store.get('stats')
+    if (savedStats !== undefined) await update($, stats, () => ({ ...NO_STATS, ...(savedStats as Partial<QuizStats>) }))
     $.ui.status(undefined)
     // A reload drops any model call in flight; state survives it, so settle
     // whatever that call left waiting.
@@ -292,6 +356,10 @@ export const register: Register = on => {
       await update($, usage, () => ({ tokens: 0, questions: 0 }))
       return { text: 'Quiz usage for this session reset.' }
     }
+    if (word === 'stats') {
+      const t: QuizStats = { ...NO_STATS, ...((await $.store.get('stats')) as Partial<QuizStats> | undefined) }
+      return { text: statsSummary(t) }
+    }
     if (word === 'now') {
       void askQuestion($)
       return { text: 'Making a question.' }
@@ -314,6 +382,8 @@ export const register: Register = on => {
     const q: Quiz = await read($, quiz)
     const u: QuizUsage = await read($, usage)
     const s: QuizSettings = await read($, settings)
+    const t: QuizStats = await read($, stats)
+    const streak = liveStreak(t)
 
     // While a model call runs the pane holds no control, so the Enter that
     // submitted an answer has nothing to land on.
@@ -325,7 +395,11 @@ export const register: Register = on => {
     const header = (
       <Box justifyContent="space-between" marginBottom={1}>
         <Text bold color={ACCENT}>Quiz</Text>
-        <Text dimColor>while Claude works</Text>
+        <Text dimColor>
+          {t.answered === 0
+            ? 'while Claude works'
+            : `${streak > 0 ? `${streak}-day streak · ` : ''}${t.answered} answered`}
+        </Text>
       </Box>
     )
     const footer = (
