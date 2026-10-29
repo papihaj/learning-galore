@@ -1,7 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Api, Register, RenderChildren } from 'claude-code'
 
-import type { Format, Quiz, QuizSettings, QuizStats, QuizUsage, TokenLog, Verdict } from '../types'
+import type { Format, Note, Quiz, QuizSettings, QuizUsage, TokenLog, Verdict } from '../types'
+import { checkLink, FOCUS_MAX, parseFocus } from './focus'
+import { appendNote, buildNote, toMarkdown } from './notes'
 import { isSecretPath, redact } from './redact'
 
 const PANE = 'session-quiz'
@@ -27,12 +29,13 @@ const EMPTY: Quiz = {
   lesson: '',
   error: '',
   source: '',
+  focus: '',
+  topic: '',
 }
 const DEFAULTS: QuizSettings = { format: 'free' }
-const NO_STATS: QuizStats = { answered: 0, solid: 0, partly: 0, notYet: 0, streak: 0, best: 0, lastDay: '' }
 
 const quiz = atom({ plugin: 'session-quiz', key: 'quiz' } as const, EMPTY, {
-  shape: 'quiz-5',
+  shape: 'quiz-mvp-1',
 })
 const usage = atom(
   { plugin: 'session-quiz', key: 'usage' } as const,
@@ -53,10 +56,6 @@ const showSettings = atom({ plugin: 'session-quiz', key: 'showSettings' } as con
 // A copy of the stored daily token counts, so the Settings view redraws.
 const tokenLog = atom({ plugin: 'session-quiz', key: 'tokenLog' } as const, {}, {
   shape: 'token-log-1',
-})
-// A copy of the stored stats, so the pane redraws when they change.
-const stats = atom({ plugin: 'session-quiz', key: 'stats' } as const, NO_STATS, {
-  shape: 'stats-1',
 })
 
 // How a good lecturer would review the session: retrieval practice, rotated
@@ -88,6 +87,13 @@ const CHOICE_RULES = `For multiple choice: four options; the right one is listed
 
 // Asked in the same call as the question, so a source costs no extra request.
 const SOURCE_RULE = `Optionally add "source": the one file the concept came from, copied exactly from a "tool ...: <path>" line in the session. Add ":<line>" only if the session itself shows that file with that line number. Leave "source" out if no file fits.`
+
+// The question stays on what the person is working on; a focus area only
+// changes the angle, so "data science" still applies to a day of frontend work.
+const FOCUS_RULE = `The student also wants to grow in these areas. Always ask about an idea from the session, never about a subject the session does not touch. If the session works on one of these areas directly, ask about that. Otherwise, if an idea from the session has a real, useful link to one of these areas, ask a question that carries the idea into that area: how the same idea shows up there, or what changes when it does. For example, a search box's debounce links to data science through batching a stream of events before a model sees them. Add "focus": that area, copied exactly from the list, and "bridge": a short phrase in that area's own words naming the setting the question uses (such as "batching events before a model"). The question itself must use that setting. If there is no honest link, ask as usual and leave "focus" and "bridge" out. Never force a link.`
+
+// Every question names its concept, so the notes can sort topics into strong and weak.
+const TOPIC_RULE = `Also add "topic": the concept the question is about, in 2 to 4 plain words (such as "debouncing input").`
 
 const GRADE_SYSTEM = `You are a kind, exact professor giving feedback on a student's short answer to a review question.
 Open with one verdict word: "Solid.", "Partly." or "Not yet."
@@ -185,17 +191,9 @@ async function spend($: Api, r: { input_tokens: number; output_tokens: number })
   await update($, tokenLog, () => next)
 }
 
-// Local date, so a streak day ends at the person's midnight, not UTC's.
+// The person's local date, so a day ends at their midnight, not UTC's.
 const dayKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-const yesterday = () => {
-  const d = new Date()
-  return dayKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1))
-}
-
-// A streak stays alive until a whole day passes with no answer.
-const liveStreak = (t: QuizStats) => (t.lastDay === dayKey(new Date()) || t.lastDay === yesterday() ? t.streak : 0)
-
 const verdictOf = (feedback: string): Verdict | undefined => {
   const word = feedback.trim().toLowerCase()
   if (word.startsWith('solid')) return 'solid'
@@ -204,32 +202,32 @@ const verdictOf = (feedback: string): Verdict | undefined => {
   return undefined
 }
 
-// Reads the store fresh, so two sessions answering on one day both count.
-async function recordAnswer($: Api, verdict: Verdict | undefined): Promise<QuizStats> {
-  const t: QuizStats = { ...NO_STATS, ...((await $.store.get('stats')) as Partial<QuizStats> | undefined) }
-  const today = dayKey(new Date())
-  const streak = t.lastDay === today ? t.streak : t.lastDay === yesterday() ? t.streak + 1 : 1
-  const next: QuizStats = {
-    ...t,
-    answered: t.answered + 1,
-    ...(verdict === undefined ? {} : { [verdict]: t[verdict] + 1 }),
-    streak,
-    best: Math.max(t.best, streak),
-    lastDay: today,
+// Notes live in files, not in the plugin's store: a top-level folder of the
+// project being worked on, so they sit next to the work they came from.
+const NOTES_DIR = 'learning-galore-notes'
+const notesDir = async ($: Api): Promise<string> => `${await $.session.cwd()}/${NOTES_DIR}`
+
+async function saveNote($: Api, q: Quiz, verdict: Verdict | undefined) {
+  try {
+    const dir = await notesDir($)
+    let notes: Note[] = []
+    try {
+      const text = await $.fs.read(`${dir}/answers.json`)
+      if (typeof text === 'string') notes = JSON.parse(text) as Note[]
+    } catch {
+      // No file yet: the first answer starts it.
+    }
+    notes = appendNote(notes, buildNote(q, verdict, dayKey(new Date())))
+    await $.fs.write(`${dir}/answers.json`, JSON.stringify(notes))
+    await $.fs.write(`${dir}/notes.md`, toMarkdown(notes))
+  } catch {
+    // A refused read or write must never break the quiz itself.
   }
-  await $.store.set('stats', next)
-  await update($, stats, () => next)
-  return next
 }
 
-function statsSummary(t: QuizStats): string {
-  if (t.answered === 0) return 'No quiz answers yet. Answer a question to start a streak.'
-  const pct = (n: number) => `${Math.round((n / t.answered) * 100)}%`
-  return [
-    `Answered ${t.answered}.`,
-    `Solid ${t.solid} (${pct(t.solid)}), Partly ${t.partly} (${pct(t.partly)}), Not yet ${t.notYet} (${pct(t.notYet)}).`,
-    `Current streak ${liveStreak(t)} ${liveStreak(t) === 1 ? 'day' : 'days'}, best ${t.best}.`,
-  ].join(' ')
+const savedFocus = async ($: Api): Promise<string[]> => {
+  const saved = await $.store.get('focus')
+  return Array.isArray(saved) ? saved.filter((t): t is string => typeof t === 'string') : []
 }
 
 const openPane = ($: Api) => $.ui.open({ id: PANE, title: 'Quiz' })
@@ -249,11 +247,14 @@ async function askQuestion($: Api) {
 
   const previous: string[] = await read($, asked)
   const move = MOVES[previous.length % MOVES.length]
+  const topics = await savedFocus($)
+  const focusField = topics.length > 0 ? ', "focus": "...", "bridge": "..."' : ''
   const shape =
     format === 'choice'
-      ? `${CHOICE_RULES}\n${SOURCE_RULE}\nReply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "..."}`
-      : `${SOURCE_RULE}\nReply as {"question": "...", "source": "..."}`
-  const prompt = `Recent session:\n<session>\n${context}\n</session>\n\nAlready asked (pick a different concept or angle):\n${previous.slice(-10).join('\n') || '(none)'}\n\nTeaching move for this question: ${move}\n\n${shape}`
+      ? `${CHOICE_RULES}\n${SOURCE_RULE}\n${TOPIC_RULE}\nReply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "...", "topic": "..."${focusField}}`
+      : `${SOURCE_RULE}\n${TOPIC_RULE}\nReply as {"question": "...", "source": "...", "topic": "..."${focusField}}`
+  const focus = topics.length > 0 ? `Areas the student wants to grow in:\n${topics.join('\n')}\n${FOCUS_RULE}\n\n` : ''
+  const prompt = `Recent session:\n<session>\n${context}\n</session>\n\nAlready asked (pick a different concept or angle):\n${previous.slice(-10).join('\n') || '(none)'}\n\nTeaching move for this question: ${move}\n\n${focus}${shape}`
 
   const r = await complete($, {
     model: MODEL,
@@ -286,6 +287,8 @@ async function askQuestion($: Api) {
     correct: isChoice ? order.indexOf(0) : -1,
     explanation: typeof data?.explanation === 'string' ? data.explanation : '',
     source: checkSource(data?.source, session),
+    focus: checkLink(data?.focus, data?.bridge, question, topics),
+    topic: typeof data?.topic === 'string' ? data.topic : '',
   }))
   $.ui.status('A quiz question is waiting')
   // Takes the keyboard only over an empty prompt, so it never interrupts typing.
@@ -310,8 +313,7 @@ async function gradeFree($: Api, answer: string) {
     status: 'answered',
     feedback: r.isAnswered ? r.text.trim() : 'Could not grade this one, but thanks for answering.',
   }))
-  // An ungraded answer still counts toward the streak, with no verdict.
-  await recordAnswer($, r.isAnswered ? verdictOf(r.text) : undefined)
+  await saveNote($, await read($, quiz), r.isAnswered ? verdictOf(r.text) : undefined)
   $.ui.status(undefined)
 }
 
@@ -320,7 +322,7 @@ const selectChoice = ($: Api, index: number) =>
 
 async function submitChoice($: Api) {
   let verdict: Verdict | undefined
-  await update($, quiz, (cur): Quiz => {
+  const done = await update($, quiz, (cur): Quiz => {
     const index = cur.selected
     if (cur.status !== 'asking' || index < 0) return cur
     const isRight = index === cur.correct
@@ -335,7 +337,7 @@ async function submitChoice($: Api) {
   })
   // Unset when the press found no question to answer, so a repeat press never counts twice.
   if (verdict === undefined) return
-  await recordAnswer($, verdict)
+  await saveNote($, done, verdict)
   $.ui.status(undefined)
 }
 
@@ -370,14 +372,12 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'quiz',
-      description: 'Open the Quiz pane. Args: now | settings | stats | free | choice',
+      description: 'Open the Quiz pane. Args: now | focus <areas> | notes | settings | free | choice',
     })
     const saved = await $.store.get('settings')
     if (saved !== undefined) await update($, settings, () => ({ ...DEFAULTS, ...(saved as Partial<QuizSettings>) }))
     const savedTokens = await $.store.get('tokenLog')
     if (savedTokens !== undefined) await update($, tokenLog, () => savedTokens as TokenLog)
-    const savedStats = await $.store.get('stats')
-    if (savedStats !== undefined) await update($, stats, () => ({ ...NO_STATS, ...(savedStats as Partial<QuizStats>) }))
     $.ui.status(undefined)
     // A reload drops any model call in flight; state survives it, so settle
     // whatever that call left waiting.
@@ -422,9 +422,28 @@ export const register: Register = on => {
       await update($, showSettings, () => true)
       return { text: 'Quiz settings opened in the pane.' }
     }
-    if (word === 'stats') {
-      const t: QuizStats = { ...NO_STATS, ...((await $.store.get('stats')) as Partial<QuizStats> | undefined) }
-      return { text: statsSummary(t) }
+    if (word === 'notes') {
+      return { text: `Your notes are in ${await notesDir($)}/notes.md.` }
+    }
+    if (word === 'focus') {
+      const rest = e.args.trim().slice(word.length).trim()
+      if (rest === '') {
+        const topics = await savedFocus($)
+        return {
+          text: topics.length === 0
+            ? 'No focus areas. Add some with /quiz focus <area>, <area>.'
+            : `Focus areas: ${topics.join(', ')}.`,
+        }
+      }
+      if (rest === 'clear') {
+        await $.store.delete('focus')
+        return { text: 'Focus areas cleared.' }
+      }
+      const topics = parseFocus(rest)
+      if (topics.length === 0) return { text: 'Usage: /quiz focus <area>, <area>' }
+      await $.store.set('focus', topics.slice(0, FOCUS_MAX))
+      const dropped = topics.length > FOCUS_MAX ? ` Kept the first ${FOCUS_MAX}.` : ''
+      return { text: `Focus areas: ${topics.slice(0, FOCUS_MAX).join(', ')}.${dropped}` }
     }
     if (word === 'now') {
       void askQuestion($)
@@ -446,7 +465,6 @@ export const register: Register = on => {
     const q: Quiz = await read($, quiz)
     const u: QuizUsage = await read($, usage)
     const s: QuizSettings = await read($, settings)
-    const t: QuizStats = await read($, stats)
     const days: TokenLog = await read($, tokenLog)
     const isSettings: boolean = await read($, showSettings)
     const setSettings = (open: boolean) => void update($, showSettings, () => open)
@@ -509,10 +527,6 @@ export const register: Register = on => {
               </Text>
             ))}
           </Box>
-          <Box flexDirection="column" marginTop={1}>
-            <Text bold>Answers</Text>
-            <Text>{statsSummary(t)}</Text>
-          </Box>
           <Box marginTop={1}>
             <Text dimColor>There is no limit. The quiz never stops you.</Text>
           </Box>
@@ -542,6 +556,7 @@ export const register: Register = on => {
     return frame(
       <Text bold>{q.question}</Text>,
       q.source !== '' && <Text dimColor>From: {q.source}</Text>,
+      q.focus !== '' && <Text dimColor>Linked to: {q.focus}</Text>,
       q.status === 'asking' && q.format === 'choice' && (
         <Box flexDirection="column" marginTop={1}>
           {q.choices.map((c, i) => (
