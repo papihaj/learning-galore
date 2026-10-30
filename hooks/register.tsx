@@ -390,7 +390,7 @@ export const register: Register = on => {
         <Box flexDirection="column" marginBottom={1} width={width}>
           <Box justifyContent="space-between">
             <Text bold color="claude">Study Buddy</Text>
-            <Text dimColor>{isSettings ? 'settings' : 'while Claude works'}</Text>
+            {isSettings && <Text dimColor>settings</Text>}
           </Box>
           {rule}
         </Box>
@@ -525,7 +525,7 @@ export const register: Register = on => {
         <Box flexDirection="column" marginTop={1}>
           {rule}
           {(isSettings || !busy) && (
-            <Box gap={2}>
+            <Box flexDirection="column">
               <Button key="format" hotkey="f" plain onPress={() => void setFormat($, f => (f === 'free' ? 'choice' : 'free'))}>
                 Format <Text color="claude">{fmt === 'free' ? 'free text' : 'multiple choice'}</Text>
               </Button>
