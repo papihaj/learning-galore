@@ -4,11 +4,13 @@ A lot of the time when you're building now, it's very rare that you're looking a
 
 While Claude works, Study Buddy asks you one question about a key term in what you're building, and saves what you learn to your project.
 
-![Claude Code fixing a missing rate limit while Study Buddy asks about it](docs/screenshots/demo-question.png)
+[![Claude Code fixes a failing withdrawal test while Study Buddy asks a question about it](docs/demo.gif)](docs/demo.mp4)
+
+[Watch the 15-second demo in full quality](docs/demo.mp4)
+
+![Claude Code fixing a race condition while Study Buddy asks about it](docs/screenshots/demo-question.png)
 
 ![Feedback with the key term highlighted and saved to notes](docs/screenshots/demo-feedback.png)
-
-[Watch the 15-second demo](docs/demo.mp4)
 
 ## Install
 
