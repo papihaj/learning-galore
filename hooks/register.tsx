@@ -29,9 +29,10 @@ const EMPTY: Quiz = {
   focus: '',
   term: '',
   definition: '',
+  next: '',
 }
 
-const quiz = atom({ plugin: 'study-buddy', key: 'quiz' } as const, EMPTY, { shape: 'quiz-mvp-4' })
+const quiz = atom({ plugin: 'study-buddy', key: 'quiz' } as const, EMPTY, { shape: 'quiz-mvp-5' })
 const format = atom({ plugin: 'study-buddy', key: 'format' } as const, 'free', { shape: 'format-1' })
 const asked = atom({ plugin: 'study-buddy', key: 'asked' } as const, [], { shape: 'asked-1' })
 const showSettings = atom({ plugin: 'study-buddy', key: 'showSettings' } as const, false, { shape: 'show-settings-1' })
@@ -43,12 +44,11 @@ const isBusy = (status: Quiz['status']): status is keyof typeof BUSY => status i
 const ASK_SYSTEM = `You are a professor who teaches software engineering well. Your student is a developer who just worked through the session below with a coding assistant. You write one review question that makes them retrieve and reason about the ideas behind that work, so they keep it.
 
 How you teach:
-- Build the question around one key concept behind what the developer is building: an idea from systems design, architecture or engineering practice that they should understand while they build, such as debounce, idempotency, a composite index, cache invalidation or a message queue. Ask what it means and why it matters in what they are building, in their own words.
+- Build the question around one key concept behind what the developer is building: an idea from systems design, architecture or engineering practice that they should understand while they build, such as debounce, idempotency, a composite index, cache invalidation or a message queue.
 - Ask only about the big, central ideas of the session: the concepts a senior engineer would want the student to still know in a year. Skip small details, syntax, configuration, and trivia (file names, exact code, what the assistant said).
+- The teaching move in the message decides what kind of thinking the question asks for. Follow that move, and only that move.
 - The question must be answerable from understanding alone, in a sentence or a short paragraph (under ${ANSWER_CHARS} characters), so ask exactly one thing. If an idea needs an essay, ask about one part of it.
-- Ask for reasons: "why", "how", "what would happen if", "when would you not". A question answerable by recalling one word is too shallow.
-- Prefer transfer: set the idea in a fresh, concrete scenario different from the session, so the student must apply it, not repeat it.
-- Target the misconception a student is most likely to hold about this topic.
+- A question answerable by recalling one word is too shallow. Ask the student to reason.
 - One question, one idea, under 40 words, plain language. Never reveal the answer in the question.
 - Pick a concept the student has not just been asked about, so practice is spread across topics.
 
@@ -63,7 +63,7 @@ const MOVES = [
   'Teach it: ask the student to explain the idea to a junior developer in two sentences.',
 ]
 
-const CHOICE_RULES = `For multiple choice: four options; the right one is listed first (it is shuffled later). Each wrong option is a misconception a real student holds, plausible to someone who half understands. All four have similar length, detail, and grammar, so length or tone never gives the answer away. No "all of the above" or "none of the above". The explanation says why the right one is right and what the most tempting wrong one gets wrong, in one or two sentences.`
+const CHOICE_RULES = `For multiple choice: four options; the right one is listed first (it is shuffled later). Each wrong option is a misconception a real student holds, plausible to someone who half understands. All four have similar length, detail, and grammar, so length or tone never gives the answer away. No "all of the above" or "none of the above". The explanation says why the right one is right and what the most tempting wrong one gets wrong, in one or two sentences. "next" names one related idea worth reviewing next, for a student who got it right, in one short sentence.`
 
 const SOURCE_RULE = `Optionally add "source": the one file the concept came from, copied exactly from a "tool ...: <path>" line in the session. Add ":<line>" only if the session itself shows that file with that line number. Leave "source" out if no file fits.`
 
@@ -74,7 +74,8 @@ const TERM_RULE = `Also add "term": that key concept, named in 1 to 4 words as a
 const GRADE_SYSTEM = `You are a kind, exact professor giving feedback on a student's short answer to a review question.
 Open with one verdict word: "Solid.", "Partly." or "Not yet."
 Then, in at most two short sentences: name what they got right, and name the specific gap or misconception (not a vague "add more detail").
-End with the key idea in one plain sentence. Do not ask the student anything: they cannot reply.
+If the answer is not Solid, end with the key idea in one plain sentence. If it is Solid, end instead with one related idea worth reviewing next, in one sentence that starts with "Next:".
+Do not ask the student anything: they cannot reply.
 At most 60 words in all. Plain text, no headings, no lists.`
 
 const LESSON_SYSTEM = `You are a kind, exact professor. Your student just missed part of a review question, and asked you to go deeper. You write a short micro-lesson on exactly the gap their answer shows, so they get it right next time.
@@ -195,7 +196,7 @@ async function askQuestion($: Api, isAsked?: true) {
   const focusField = topics.length > 0 ? ', "focus": "...", "bridge": "..."' : ''
   const shape =
     fmt === 'choice'
-      ? `${CHOICE_RULES}\n${SOURCE_RULE}\n${TERM_RULE}\nReply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "...", "term": "...", "definition": "..."${focusField}}`
+      ? `${CHOICE_RULES}\n${SOURCE_RULE}\n${TERM_RULE}\nReply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "next": "...", "source": "...", "term": "...", "definition": "..."${focusField}}`
       : `${SOURCE_RULE}\n${TERM_RULE}\nReply as {"question": "...", "source": "...", "term": "...", "definition": "..."${focusField}}`
   const focus = topics.length > 0 ? `Areas the student wants to grow in:\n${topics.join('\n')}\n${FOCUS_RULE}\n\n` : ''
   const prompt = `Recent session:\n<session>\n${session.text}\n</session>\n\nAlready asked (pick a different concept or angle):\n${previous.slice(-10).join('\n') || '(none)'}\n\nTeaching move for this question: ${MOVES[previous.length % MOVES.length]}\n\n${focus}${shape}`
@@ -223,6 +224,7 @@ async function askQuestion($: Api, isAsked?: true) {
     focus: checkLink(data?.focus, data?.bridge, question, topics),
     term: str(data?.term).trim(),
     definition: str(data?.definition).trim(),
+    next: str(data?.next).trim(),
   }))
   void openPane($, isAsked)
 }
@@ -258,7 +260,7 @@ async function submitChoice($: Api) {
       status: 'answered',
       verdict: isRight ? 'solid' : 'notYet',
       answer: cur.choices[cur.selected] ?? '',
-      feedback: `${isRight ? 'Solid.' : `Not yet. The answer is: ${/[.!?]$/.test(right) ? right : `${right}.`}`} ${cur.explanation}`.trim(),
+      feedback: `${isRight ? 'Solid.' : `Not yet. The answer is: ${/[.!?]$/.test(right) ? right : `${right}.`}`} ${cur.explanation}${isRight && cur.next !== '' ? ` Next: ${cur.next}` : ''}`.trim(),
     }
   })
   if (changed) await saveNote($, done)

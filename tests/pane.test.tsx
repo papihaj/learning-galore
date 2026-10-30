@@ -28,6 +28,7 @@ const REPLY = JSON.stringify({
   question: 'What happens to writes when you add an index?',
   choices: ['Writes slow down because every index must be updated', 'Reads slow down because the table gets locked', 'Nothing changes at all', 'Old rows are dropped'],
   explanation: 'Each insert updates every index.',
+  next: 'Covering indexes.',
   term: 'index',
   definition: 'A lookup structure kept beside a table.',
 })
@@ -49,6 +50,6 @@ test('picking the right choice grades it Solid', async ($, on) => {
     if (await ui.find({ type: 'Text', text: /^\(•\) Writes slow down/ })) break
   }
   await ui.press({ key: 'submit' })
-  expect(await ui.find({ type: 'Text', text: /^Solid\./ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Solid\..*Next: Covering indexes\.$/ })).toBeDefined()
   await ui.unmount()
 })
