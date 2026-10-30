@@ -7,7 +7,7 @@ import { answerOf, flow, spokenChoice } from './answer'
 import { appendNote, buildNote, toMarkdown } from './notes'
 import { isSecretPath, redact } from './redact'
 
-const PANE = 'session-quiz'
+const PANE = 'study-buddy'
 const CONTEXT_CHARS = 6000
 const ANSWER_CHARS = 600
 
@@ -31,12 +31,12 @@ const EMPTY: Quiz = {
   definition: '',
 }
 
-const quiz = atom({ plugin: 'session-quiz', key: 'quiz' } as const, EMPTY, { shape: 'quiz-mvp-4' })
-const format = atom({ plugin: 'session-quiz', key: 'format' } as const, 'free', { shape: 'format-1' })
-const asked = atom({ plugin: 'session-quiz', key: 'asked' } as const, [], { shape: 'asked-1' })
-const showSettings = atom({ plugin: 'session-quiz', key: 'showSettings' } as const, false, { shape: 'show-settings-1' })
-const sessionTokens = atom({ plugin: 'session-quiz', key: 'sessionTokens' } as const, 0, { shape: 'session-tokens-1' })
-const listening = atom({ plugin: 'session-quiz', key: 'listening' } as const, false, { shape: 'listening-1' })
+const quiz = atom({ plugin: 'study-buddy', key: 'quiz' } as const, EMPTY, { shape: 'quiz-mvp-4' })
+const format = atom({ plugin: 'study-buddy', key: 'format' } as const, 'free', { shape: 'format-1' })
+const asked = atom({ plugin: 'study-buddy', key: 'asked' } as const, [], { shape: 'asked-1' })
+const showSettings = atom({ plugin: 'study-buddy', key: 'showSettings' } as const, false, { shape: 'show-settings-1' })
+const sessionTokens = atom({ plugin: 'study-buddy', key: 'sessionTokens' } as const, 0, { shape: 'session-tokens-1' })
+const listening = atom({ plugin: 'study-buddy', key: 'listening' } as const, false, { shape: 'listening-1' })
 
 const BUSY = { thinking: 'idle', grading: 'asking', teaching: 'answered' } as const
 const isBusy = (status: Quiz['status']): status is keyof typeof BUSY => status in BUSY
@@ -152,7 +152,7 @@ async function haiku($: Api, system: string, prompt: string, maxTokens: number):
   }
 }
 
-const notesDir = async ($: Api) => `${await $.session.cwd()}/learning-galore-notes`
+const notesDir = async ($: Api) => `${await $.session.cwd()}/study-buddy-notes`
 
 async function saveNote($: Api, q: Quiz) {
   try {
@@ -172,7 +172,7 @@ const savedFocus = async ($: Api): Promise<string[]> => {
   return Array.isArray(saved) ? saved.filter((t): t is string => typeof t === 'string') : []
 }
 
-const openPane = ($: Api, focus?: true) => $.ui.open({ id: PANE, title: 'Quiz', focus })
+const openPane = ($: Api, focus?: true) => $.ui.open({ id: PANE, title: 'Study Buddy', focus })
 
 const setFormat = async ($: Api, fn: (f: Format) => Format) => $.store.set('format', await update($, format, fn))
 
@@ -180,7 +180,7 @@ async function askQuestion($: Api) {
   if (isBusy((await read($, quiz)).status)) return
   const limit = await $.store.get('dailyLimit')
   if (typeof limit === 'number' && (await tokensToday($)) >= limit) {
-    await update($, quiz, (): Quiz => ({ ...EMPTY, status: 'error', error: `You reached today's limit of ${limit.toLocaleString('en-US')} tokens. Run /quiz limit off to remove it.` }))
+    await update($, quiz, (): Quiz => ({ ...EMPTY, status: 'error', error: `You reached today's limit of ${limit.toLocaleString('en-US')} tokens. Run /buddy limit off to remove it.` }))
     return
   }
   const session = await digest($)
@@ -285,8 +285,8 @@ async function goDeeper($: Api) {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
-      name: 'quiz',
-      description: 'Open the Quiz pane. Args: now | speak | focus <areas> | notes | limit <tokens>|off | settings | free | choice',
+      name: 'buddy',
+      description: 'Open Study Buddy. Args: now | speak | focus <areas> | notes | limit <tokens>|off | settings | free | choice',
     })
     const saved = await $.store.get('format')
     if (saved === 'free' || saved === 'choice') await update($, format, () => saved)
@@ -304,7 +304,7 @@ export const register: Register = on => {
       await update($, listening, () => false)
       return next(e)
     }
-    if (spoken === '') return { drop: 'Nothing heard. Speak your answer again, or press v in the Quiz pane to stop.' }
+    if (spoken === '') return { drop: 'Nothing heard. Speak your answer again, or press v in Study Buddy to stop.' }
     if (q.format === 'choice') {
       const i = spokenChoice(spoken, q.choices)
       if (i < 0) return { drop: `Not sure which choice you meant by "${clip(spoken, 60)}". Say its number, like "two".` }
@@ -316,7 +316,7 @@ export const register: Register = on => {
       void gradeFree($, spoken.slice(0, ANSWER_CHARS))
     }
     void openPane($)
-    return { drop: 'Sent to the Quiz as your spoken answer.' }
+    return { drop: 'Sent to Study Buddy as your spoken answer.' }
   })
 
   on('turn.start', async ($, e, next) => {
@@ -327,29 +327,29 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'quiz' }, async ($, e) => {
+  on('command.run', { command: 'buddy' }, async ($, e) => {
     const [word = ''] = e.args.trim().split(/\s+/)
     const rest = e.args.trim().slice(word.length).trim()
     await openPane($)
     if (word === 'free' || word === 'choice') {
       await setFormat($, () => word)
-      return { text: `Quiz format: ${word === 'free' ? 'free text' : 'multiple choice'}.` }
+      return { text: `Study Buddy format: ${word === 'free' ? 'free text' : 'multiple choice'}.` }
     }
     if (word === 'limit') {
       const n = Number(rest.replace(/,/g, ''))
       if (rest === 'off') await $.store.delete('dailyLimit')
       else if (Number.isInteger(n) && n > 0) await $.store.set('dailyLimit', n)
-      else if (rest !== '') return { text: 'Usage: /quiz limit <tokens per day> or /quiz limit off' }
+      else if (rest !== '') return { text: 'Usage: /buddy limit <tokens per day> or /buddy limit off' }
       const limit = await $.store.get('dailyLimit')
-      return { text: typeof limit === 'number' ? `Daily limit: ${limit.toLocaleString('en-US')} tokens.` : 'No limit. The quiz never stops you.' }
+      return { text: typeof limit === 'number' ? `Daily limit: ${limit.toLocaleString('en-US')} tokens.` : 'No limit. Study Buddy never stops you.' }
     }
     if (word === 'settings') {
       await update($, showSettings, () => true)
-      return { text: 'Quiz settings opened in the pane.' }
+      return { text: 'Study Buddy settings opened in the pane.' }
     }
     if (word === 'notes') return { text: `Your notes are in ${await notesDir($)}/notes.md.` }
     if (word === 'speak') {
-      if ((await read($, quiz)).status !== 'asking') return { text: 'No question is waiting. Run /quiz now for one.' }
+      if ((await read($, quiz)).status !== 'asking') return { text: 'No question is waiting. Run /buddy now for one.' }
       await update($, listening, () => true)
       return { text: 'Listening: dictate your answer in the prompt box and press Enter.' }
     }
@@ -362,10 +362,10 @@ export const register: Register = on => {
       else if (rest !== '') await $.store.set('focus', parseFocus(rest))
       const topics = await savedFocus($)
       return {
-        text: topics.length === 0 ? 'No focus areas. Add some with /quiz focus <area>, <area>.' : `Focus areas: ${topics.join(', ')}.`,
+        text: topics.length === 0 ? 'No focus areas. Add some with /buddy focus <area>, <area>.' : `Focus areas: ${topics.join(', ')}.`,
       }
     }
-    return { text: 'Quiz pane opened. Run /quiz settings to see token use.' }
+    return { text: 'Study Buddy opened. Run /buddy settings to see token use.' }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -389,7 +389,7 @@ export const register: Register = on => {
       <Box flexDirection="column" paddingX={2} paddingY={1} width={e.props.bodyColumns} minHeight={fill}>
         <Box flexDirection="column" marginBottom={1} width={width}>
           <Box justifyContent="space-between">
-            <Text bold color="claude">Quiz</Text>
+            <Text bold color="claude">Study Buddy</Text>
             <Text dimColor>{isSettings ? 'settings' : 'while Claude works'}</Text>
           </Box>
           {rule}
@@ -423,7 +423,7 @@ export const register: Register = on => {
               <Box marginTop={1} flexDirection="column" borderStyle="round" borderColor="claude" paddingX={1}>
                 <Text bold color="claude">Listening for your answer</Text>
                 <Text>
-                  Dictate it into the main prompt box (hold Space with /voice on, or tap the mic), then press Enter. It goes to the Quiz, not to Claude.
+                  Dictate it into the main prompt box (hold Space with /voice on, or tap the mic), then press Enter. It goes to Study Buddy, not to Claude.
                 </Text>
                 {q.format === 'choice' && <Text dimColor>Say the choice's number, like "two", or its words.</Text>}
               </Box>
@@ -531,7 +531,7 @@ export const register: Register = on => {
               </Button>
               {isSettings ? (
                 <Button key="back" hotkey="b" variant="primary" onPress={() => void update($, showSettings, () => false)}>
-                  Back to the quiz
+                  Back to the questions
                 </Button>
               ) : (
                 <Button key="settings" hotkey="g" plain onPress={() => void update($, showSettings, () => true)}>
