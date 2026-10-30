@@ -1,12 +1,18 @@
 {
   "name": "study-buddy-plugin",
   "owner": {
-    "name": "papihaj"
+    "name": "papihaj",
+    "url": "https://github.com/papihaj"
+  },
+  "metadata": {
+    "description": "Study Buddy: learn the ideas behind what Claude builds for you"
   },
   "plugins": [
     {
       "name": "study-buddy",
-      "source": "./"
+      "source": "./",
+      "description": "Asks you about key terms in what you are building while Claude works, and saves them to your notes",
+      "version": "1.0.0"
     }
   ]
 }
