@@ -43,7 +43,6 @@ declare module 'claude-code' {
       asked: Shaped<string[]>
       showSettings: Shaped<boolean>
       sessionTokens: Shaped<number>
-      listening: Shaped<boolean>
     }
   }
 }
