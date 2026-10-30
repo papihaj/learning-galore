@@ -1,16 +1,9 @@
 const BODY = [
-  '..............o..o',
-  '.o............oooo',
-  'o.............oeon',
-  'o..ooooooooooooooo',
-  '.ooooooooooooooo..',
-  '..oooooooooooooo..',
-  '...oooooooooooo...',
+  'o........o.o',
+  '.ooooooooooe',
+  '..oooooooon.',
 ]
-const LEGS = [
-  ['...o.o......o.o...', '..o...o....o...o..'],
-  ['....oo......oo....', '....oo......oo....'],
-]
+const LEGS = [['..o.o..o.o..'], ['...o.o..o.o.']]
 const COLORS: Record<string, number> = { o: 0xe0a35a, e: 0x1b1c20, n: 0xf4b8a8 }
 const DEFAULT = 0x01000000
 const UPPER = 0x2580
@@ -19,7 +12,7 @@ const FULL = 0x2588
 const SPACE = 0x20
 
 export const CAT_WIDTH = BODY[0]?.length ?? 0
-export const CAT_ROWS = Math.ceil((BODY.length + 2) / 2)
+export const CAT_ROWS = Math.ceil((BODY.length + 1) / 2)
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 
