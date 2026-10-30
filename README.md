@@ -20,7 +20,7 @@ While Claude works, Study Buddy asks you one question about a key term in what y
 
 1. Use Claude Code normally.
 2. A question shows up in the Study Buddy pane. Press `ctrl+x` then `Tab` to move into it.
-3. Type your answer, or press `v` and say it with voice input.
+3. Type your answer, or pick a choice.
 
 Key terms you learn are saved to `study-buddy-notes/notes.md`.
 
@@ -28,7 +28,6 @@ Key terms you learn are saved to `study-buddy-notes/notes.md`.
 |---|---|
 | `/buddy` | Open the pane. |
 | `/buddy now` | Ask a question now. |
-| `/buddy speak` | Answer the waiting question by voice. |
 | `/buddy focus evaluation, testing` | Connect questions to what you're learning. `/buddy focus clear` removes them. |
 | `/buddy free` or `/buddy choice` | Type answers, or pick from choices. |
 | `/buddy limit 50000` | Optional daily token limit. `/buddy limit off` removes it. |

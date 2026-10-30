@@ -27,29 +27,3 @@ export function flow(lines: string[], value: string, width: number): Typed {
 }
 
 export const answerOf = (t: Typed, last = t.draft) => t.lines.join('') + last
-
-const SPOKEN: Record<string, number> = {
-  '1': 0, one: 0, first: 0, a: 0,
-  '2': 1, two: 1, to: 1, too: 1, second: 1, b: 1, be: 1, bee: 1,
-  '3': 2, three: 2, third: 2, c: 2, see: 2, sea: 2,
-  '4': 3, four: 3, for: 3, fourth: 3, d: 3, dee: 3,
-}
-
-const words = (s: string) => s.toLowerCase().match(/[a-z0-9]+/g) ?? []
-export function spokenChoice(text: string, choices: string[]): number {
-  const said = words(text)
-  if (said.length <= 3) {
-    for (const w of said) {
-      const i = SPOKEN[w]
-      if (i !== undefined && i < choices.length) return i
-    }
-  }
-  const heard = new Set(said)
-  const scores = choices.map(c => {
-    const own = words(c).filter(w => w.length > 3)
-    return own.length === 0 ? 0 : own.filter(w => heard.has(w)).length / own.length
-  })
-  const best = Math.max(...scores)
-  if (best < 0.5 || scores.filter(s => s === best).length > 1) return -1
-  return scores.indexOf(best)
-}

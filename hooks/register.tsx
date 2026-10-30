@@ -3,7 +3,7 @@ import type { EngineInterface as Api, Register } from 'claude-code'
 
 import type { Format, Note, Quiz, Verdict } from '../types'
 import { checkLink, parseFocus } from './focus'
-import { answerOf, flow, spokenChoice } from './answer'
+import { answerOf, flow } from './answer'
 import { appendNote, buildNote, toMarkdown } from './notes'
 import { isSecretPath, redact } from './redact'
 
@@ -36,7 +36,6 @@ const format = atom({ plugin: 'study-buddy', key: 'format' } as const, 'free', {
 const asked = atom({ plugin: 'study-buddy', key: 'asked' } as const, [], { shape: 'asked-1' })
 const showSettings = atom({ plugin: 'study-buddy', key: 'showSettings' } as const, false, { shape: 'show-settings-1' })
 const sessionTokens = atom({ plugin: 'study-buddy', key: 'sessionTokens' } as const, 0, { shape: 'session-tokens-1' })
-const listening = atom({ plugin: 'study-buddy', key: 'listening' } as const, false, { shape: 'listening-1' })
 
 const BUSY = { thinking: 'idle', grading: 'asking', teaching: 'answered' } as const
 const isBusy = (status: Quiz['status']): status is keyof typeof BUSY => status in BUSY
@@ -190,7 +189,6 @@ async function askQuestion($: Api, isAsked?: true) {
   }
   const fmt: Format = await read($, format)
   await update($, quiz, (): Quiz => ({ ...EMPTY, status: 'thinking', format: fmt }))
-  await update($, listening, () => false)
 
   const previous: string[] = await read($, asked)
   const topics = await savedFocus($)
@@ -286,37 +284,13 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'buddy',
-      description: 'Open Study Buddy. Args: now | speak | focus <areas> | notes | limit <tokens>|off | settings | free | choice',
+      description: 'Open Study Buddy. Args: now | focus <areas> | notes | limit <tokens>|off | settings | free | choice',
     })
     const saved = await $.store.get('format')
     if (saved === 'free' || saved === 'choice') await update($, format, () => saved)
     await update($, quiz, (q): Quiz => (isBusy(q.status) ? { ...q, status: BUSY[q.status] } : q))
-    await update($, listening, () => false)
     void openPane($)
     return next(e)
-  })
-
-  on('prompt.submit', async ($, e, next) => {
-    if (e.command !== undefined || e.isMeta || !(await read($, listening))) return next(e)
-    const q: Quiz = await read($, quiz)
-    const spoken = e.text.trim()
-    if (q.status !== 'asking') {
-      await update($, listening, () => false)
-      return next(e)
-    }
-    if (spoken === '') return { drop: 'Nothing heard. Speak your answer again, or press v in Study Buddy to stop.' }
-    if (q.format === 'choice') {
-      const i = spokenChoice(spoken, q.choices)
-      if (i < 0) return { drop: `Not sure which choice you meant by "${clip(spoken, 60)}". Say its number, like "two".` }
-      await update($, listening, () => false)
-      await update($, quiz, (cur): Quiz => ({ ...cur, selected: i }))
-      void submitChoice($)
-    } else {
-      await update($, listening, () => false)
-      void gradeFree($, spoken.slice(0, ANSWER_CHARS))
-    }
-    void openPane($)
-    return { drop: 'Sent to Study Buddy as your spoken answer.' }
   })
 
   on('turn.start', async ($, e, next) => {
@@ -348,11 +322,6 @@ export const register: Register = on => {
       return { text: 'Study Buddy settings opened in the pane.' }
     }
     if (word === 'notes') return { text: `Your notes are in ${await notesDir($)}/notes.md.` }
-    if (word === 'speak') {
-      if ((await read($, quiz)).status !== 'asking') return { text: 'No question is waiting. Run /buddy now for one.' }
-      await update($, listening, () => true)
-      return { text: 'Listening: dictate your answer in the prompt box and press Enter.' }
-    }
     if (word === 'now') {
       void askQuestion($, true)
       return { text: 'Making a question.' }
@@ -382,7 +351,6 @@ export const register: Register = on => {
     const width = Math.max(0, e.props.bodyColumns - 4)
     const rule = <Text dimColor>{'─'.repeat(width)}</Text>
     const room = Math.max(10, width - 6)
-    const isListening = asking && (await read($, listening))
     const fill = e.props.placement === 'dock' ? e.props.scroll.bodyRows : undefined
 
     return (
@@ -418,17 +386,8 @@ export const register: Register = on => {
                 ))}
               </Box>
             )}
-            {asking && q.format === 'free' && Input === undefined && !isListening && <Text dimColor>Free-text answers need the terminal or desktop app, or press v to speak one.</Text>}
-            {isListening && (
-              <Box marginTop={1} flexDirection="column" borderStyle="round" borderColor="claude" paddingX={1}>
-                <Text bold color="claude">Listening for your answer</Text>
-                <Text>
-                  Dictate it into the main prompt box (hold Space with /voice on, or tap the mic), then press Enter. It goes to Study Buddy, not to Claude.
-                </Text>
-                {q.format === 'choice' && <Text dimColor>Say the choice's number, like "two", or its words.</Text>}
-              </Box>
-            )}
-            {typing && !isListening && Input !== undefined && (
+            {asking && q.format === 'free' && Input === undefined && <Text dimColor>Free-text answers need the terminal or desktop app.</Text>}
+            {typing && Input !== undefined && (
               <Box marginTop={1} flexDirection="column">
                 <Text dimColor>Your answer</Text>
                 <Box borderStyle="round" borderColor="claude" paddingX={1} flexDirection="column">
@@ -489,7 +448,7 @@ export const register: Register = on => {
                 {q.status === 'idle' ? 'Ask me now' : 'Try again'}
               </Button>
             )}
-            {typing && !isListening && (
+            {typing && (
               <Button key="send" variant="primary" onPress={() => void gradeFree($, answerOf(q))}>
                 Submit
               </Button>
@@ -497,11 +456,6 @@ export const register: Register = on => {
             {asking && q.format === 'choice' && (
               <Button key="submit" hotkey="a" variant="primary" onPress={() => void submitChoice($)}>
                 Submit <Text dimColor>a</Text>
-              </Button>
-            )}
-            {asking && (
-              <Button key="speak" hotkey="v" onPress={() => void update($, listening, was => !was)}>
-                {isListening ? 'Stop listening' : 'Speak'} <Text dimColor>v</Text>
               </Button>
             )}
             {asking && (
