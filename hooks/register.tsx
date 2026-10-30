@@ -176,7 +176,7 @@ const openPane = ($: Api, focus?: true) => $.ui.open({ id: PANE, title: 'Study B
 
 const setFormat = async ($: Api, fn: (f: Format) => Format) => $.store.set('format', await update($, format, fn))
 
-async function askQuestion($: Api) {
+async function askQuestion($: Api, isAsked?: true) {
   if (isBusy((await read($, quiz)).status)) return
   const limit = await $.store.get('dailyLimit')
   if (typeof limit === 'number' && (await tokensToday($)) >= limit) {
@@ -226,7 +226,7 @@ async function askQuestion($: Api) {
     term: str(data?.term).trim(),
     definition: str(data?.definition).trim(),
   }))
-  void openPane($, true)
+  void openPane($, isAsked)
 }
 
 const verdictOf = (feedback: string): Verdict | undefined => {
@@ -354,7 +354,7 @@ export const register: Register = on => {
       return { text: 'Listening: dictate your answer in the prompt box and press Enter.' }
     }
     if (word === 'now') {
-      void askQuestion($)
+      void askQuestion($, true)
       return { text: 'Making a question.' }
     }
     if (word === 'focus') {
@@ -485,7 +485,7 @@ export const register: Register = on => {
         {!isSettings && !busy && (
           <Box marginTop={1} gap={2}>
             {(q.status === 'idle' || q.status === 'error') && (
-              <Button key="now" hotkey="n" variant="primary" onPress={() => void askQuestion($)}>
+              <Button key="now" hotkey="n" variant="primary" onPress={() => void askQuestion($, true)}>
                 {q.status === 'idle' ? 'Ask me now' : 'Try again'}
               </Button>
             )}
@@ -510,7 +510,7 @@ export const register: Register = on => {
               </Button>
             )}
             {(q.status === 'answered' || q.status === 'taught') && (
-              <Button key="next" hotkey="n" variant="primary" onPress={() => void askQuestion($)}>
+              <Button key="next" hotkey="n" variant="primary" onPress={() => void askQuestion($, true)}>
                 Next question
               </Button>
             )}

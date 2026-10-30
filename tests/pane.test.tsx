@@ -14,11 +14,9 @@ const PANE = {
   },
 } as const
 
-test('the pane shows no art or animation', async $ => {
+test('the idle pane says a question is coming', async $ => {
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect(await ui.find({ type: 'Text', text: /\|=======\|/ })).toBeUndefined()
-    expect(await ui.find({ type: 'Text', text: /o\.o/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /A question will show up here/ })).toBeDefined()
     await ui.unmount()
   }

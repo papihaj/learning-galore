@@ -1,4 +1,4 @@
-export type Typed = { lines: string[]; draft: string }
+type Typed = { lines: string[]; draft: string }
 
 function breakLong(word: string, width: number): string[] {
   if (word.length <= width) return [word]

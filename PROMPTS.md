@@ -37,10 +37,12 @@ Already asked (pick a different concept or angle):
 
 Teaching move for this question: {one move from the list below}
 
+{the focus rule below, only if you set focus areas}
+
 {the format rules below}
 ```
 
-The session text holds each message's text, cut to 600 characters, and one line per tool call, such as `tool Edit: src/search.ts`. File paths are shown relative to the session's folder. Likely secrets are redacted first; see Privacy in the README.
+The session text holds each message's text, cut to 600 characters, and one line per tool call, such as `tool Edit: src/search.ts`. File paths are shown relative to the session's folder. Likely secrets are redacted first, and tool calls on files such as `.env` or `id_rsa` are left out.
 
 **Teaching moves** (`MOVES`). The plugin uses them in turn, one per question, so the questions vary:
 
@@ -51,7 +53,15 @@ The session text holds each message's text, cut to 600 characters, and one line 
 5. Misconception: state a plausible but wrong belief about the idea and ask what is wrong with it.
 6. Teach it: ask the student to explain the idea to a junior developer in two sentences.
 
-**Format rules.** Both formats start with the source rule (`SOURCE_RULE`) and the term rule (`TERM_RULE`):
+**Focus rule** (`FOCUS_RULE`). Sent only after `/buddy focus` sets areas, below a line `Areas the student wants to grow in:` and the areas, one per line. Both reply formats then also ask for `"focus": "...", "bridge": "..."`.
+
+```text
+The student also wants to grow in these areas. Always ask about an idea from the session, never about a subject the session does not touch. If the session works on one of these areas directly, ask about that. Otherwise, if an idea from the session has a real, useful link to one of these areas, ask a question that carries the idea into that area: how the same idea shows up there, or what changes when it does. For example, a search box's debounce links to data science through batching a stream of events before a model sees them. Add "focus": that area, copied exactly from the list, and "bridge": a short phrase in that area's own words naming the setting the question uses (such as "batching events before a model"). The question itself must use that setting. If there is no honest link, ask as usual and leave "focus" and "bridge" out. Never force a link.
+```
+
+The plugin keeps the link only if the area is one you set and a word from the bridge is in the question. The pane then shows `Linked to: <area> (<bridge>)`.
+
+**Format rules.** Both formats end with the source rule (`SOURCE_RULE`) and the term rule (`TERM_RULE`), just before the `Reply as` line:
 
 ```text
 Optionally add "source": the one file the concept came from, copied exactly from a "tool ...: <path>" line in the session. Add ":<line>" only if the session itself shows that file with that line number. Leave "source" out if no file fits.
@@ -96,7 +106,7 @@ At most 60 words in all. Plain text, no headings, no lists.
 ```text
 Question: {the question}
 
-Answer: {the answer, at most 280 characters}
+Answer: {the answer, at most 600 characters}
 ```
 
 Longest reply: 300 tokens.
@@ -121,7 +131,7 @@ At most 120 words in all. Plain text, no headings, no lists, no markdown.
 ```text
 Question: {the question}
 
-Student's answer: {the answer, at most 280 characters}
+Student's answer: {the answer, at most 600 characters}
 
 Right answer: {multiple choice only: the right choice}
 
