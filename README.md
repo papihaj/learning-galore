@@ -26,10 +26,11 @@ claude plugin marketplace update learning-galore && claude plugin update session
 
 ## Use it
 
-Use Claude Code normally. When a question is waiting, open it with `/quiz` and answer in the box. Your terms are saved to `learning-galore-notes/notes.md` in your project.
+Use Claude Code normally. When a question is waiting, open it with `/quiz` and answer in the box, or press `v` (Speak) and say your answer: dictate it into the main prompt box with Claude Code's voice input and press Enter. While the Quiz is listening, that prompt goes to the Quiz as your answer, not to Claude. For multiple choice, say the choice's number ("two") or its words. Your terms are saved to `learning-galore-notes/notes.md` in your project.
 
 | Command | What it does |
 |---|---|
+| `/quiz speak` | Answer the waiting question out loud. |
 | `/quiz focus evaluation` | Connect questions to what you're learning. |
 | `/quiz free` or `/quiz choice` | Type answers, or pick from choices. |
 | `/quiz limit 50000` | Optional daily token limit. There's none unless you set one. |
