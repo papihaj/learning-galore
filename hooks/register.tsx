@@ -2,12 +2,16 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Api, Register } from 'claude-code'
 
 import type { Format, Note, Quiz, Verdict } from '../types'
+import { CAT_ROWS, catCells } from './cat'
 import { checkLink, parseFocus } from './focus'
 import { answerOf, flow, spokenChoice } from './answer'
 import { appendNote, buildNote, toMarkdown } from './notes'
 import { isSecretPath, redact } from './redact'
 
 const PANE = 'study-buddy'
+const CAT_STEP_MS = 180
+let catStep = 0
+let catWidth = 0
 const CONTEXT_CHARS = 6000
 const ANSWER_CHARS = 600
 
@@ -293,6 +297,10 @@ export const register: Register = on => {
     await update($, quiz, (q): Quiz => (isBusy(q.status) ? { ...q, status: BUSY[q.status] } : q))
     await update($, listening, () => false)
     void openPane($)
+    $.clock.every(CAT_STEP_MS, () => {
+      catStep += 1
+      if (catWidth > 0) void $.ui.blit({ requestId: PANE, key: 'cat', columns: catWidth, rows: CAT_ROWS, cells: catCells(catWidth, catStep) }).catch(() => undefined)
+    })
     return next(e)
   })
 
@@ -371,6 +379,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
+    const Raster = 'Raster' in els ? els.Raster : undefined
     const Input = 'Input' in els ? els.Input : undefined
     const q: Quiz = await read($, quiz)
     const fmt: Format = await read($, format)
@@ -380,6 +389,7 @@ export const register: Register = on => {
     const asking = q.status === 'asking'
     const typing = asking && q.format === 'free' && Input !== undefined
     const width = Math.max(0, e.props.bodyColumns - 4)
+    catWidth = width
     const rule = <Text dimColor>{'─'.repeat(width)}</Text>
     const room = Math.max(10, width - 6)
     const isListening = asking && (await read($, listening))
@@ -542,6 +552,11 @@ export const register: Register = on => {
           )}
           {!e.props.isFocused && <Text dimColor>ctrl+x tab to answer here</Text>}
         </Box>
+        {Raster !== undefined && width > 0 && (
+          <Box marginTop={1}>
+            <Raster key="cat" columns={width} rows={CAT_ROWS} cells={catCells(width, catStep)} />
+          </Box>
+        )}
       </Box>
     )
   })
