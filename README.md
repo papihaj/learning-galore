@@ -4,13 +4,15 @@ A lot of the time when you're building now, it's very rare that you're looking a
 
 While Claude works, Study Buddy asks you one question about a key term in what you're building, like debounce, and saves what you learn to a Markdown file in your project.
 
-Claude finds that the search API has no rate limiting, and while it fixes it, Study Buddy asks you about it:
+Here Claude finds that search is slow because nothing rate limits a runaway client. While it adds the limit, Study Buddy asks a question about it:
 
-![Claude Code finding a missing rate limit while Study Buddy asks about it](docs/screenshots/demo-question.png)
+![Claude Code fixing a missing rate limit while Study Buddy asks about it](docs/screenshots/demo-question.png)
 
-| You answer while Claude works | Feedback, with the key term saved to your notes |
-|---|---|
-| ![Typing an answer in the Study Buddy pane](docs/screenshots/demo-answer.png) | ![Feedback with rate limiting highlighted and saved](docs/screenshots/demo-feedback.png) |
+You answer in a sentence or two, and the key term is saved to your notes:
+
+![Feedback with distributed rate limiting highlighted and saved](docs/screenshots/demo-feedback.png)
+
+[Watch the 30-second demo](docs/demo.mp4)
 
 ## Install
 
@@ -36,3 +38,7 @@ Use Claude Code normally. When a question is waiting, open it with `/buddy` and 
 | `/buddy focus evaluation` | Connect questions to what you're learning. |
 | `/buddy free` or `/buddy choice` | Type answers, or pick from choices. |
 | `/buddy limit 50000` | Optional daily token limit. There's none unless you set one. |
+
+## License
+
+[MIT](LICENSE)

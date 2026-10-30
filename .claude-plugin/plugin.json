@@ -1,9 +1,20 @@
 {
   "name": "study-buddy",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "description": "Asks you about key terms in what you are building while Claude works, and saves them to your notes",
-  "types": "./types/index.d.ts",
   "author": {
-    "name": "papihaj"
-  }
+    "name": "papihaj",
+    "url": "https://github.com/papihaj"
+  },
+  "homepage": "https://github.com/papihaj/study-buddy-plugin",
+  "repository": "https://github.com/papihaj/study-buddy-plugin",
+  "license": "MIT",
+  "keywords": [
+    "learning",
+    "quiz",
+    "study",
+    "system design",
+    "notes"
+  ],
+  "types": "./types/index.d.ts"
 }
