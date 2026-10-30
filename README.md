@@ -8,7 +8,7 @@ While Claude works, Study Buddy asks you one question about a key term in what y
 
 ![Feedback with the key term highlighted and saved to notes](docs/screenshots/demo-feedback.png)
 
-[Watch the 30-second demo](docs/demo.mp4)
+[Watch the 20-second demo](docs/demo.mp4)
 
 ## Install
 
