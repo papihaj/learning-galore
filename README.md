@@ -4,11 +4,13 @@ A lot of the time when you're building now, it's very rare that you're looking a
 
 While Claude works, Study Buddy asks you one question about a key term in what you're building, like debounce, and saves what you learn to a Markdown file in your project.
 
-![Claude Code with the Study Buddy pane beside the chat](docs/screenshots/beside-chat.png)
+Claude finds that the search API has no rate limiting, and while it fixes it, Study Buddy asks you about it:
 
-| A question | Feedback and the key term | Your notes |
-|---|---|---|
-| ![A question about the session](docs/screenshots/multiple-choice.png) | ![Feedback with the key term highlighted](docs/screenshots/feedback.png) | ![The notes file](docs/screenshots/notes.png) |
+![Claude Code finding a missing rate limit while Study Buddy asks about it](docs/screenshots/demo-question.png)
+
+| You answer while Claude works | Feedback, with the key term saved to your notes |
+|---|---|
+| ![Typing an answer in the Study Buddy pane](docs/screenshots/demo-answer.png) | ![Feedback with rate limiting highlighted and saved](docs/screenshots/demo-feedback.png) |
 
 ## Install
 
