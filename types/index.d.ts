@@ -37,7 +37,7 @@ export type Note = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'session-quiz': {
+    'study-buddy': {
       quiz: Shaped<Quiz>
       format: Shaped<Format>
       asked: Shaped<string[]>

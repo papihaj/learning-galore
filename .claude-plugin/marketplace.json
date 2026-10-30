@@ -1,5 +1,12 @@
 {
-  "name": "learning-galore",
-  "owner": { "name": "papihaj" },
-  "plugins": [{ "name": "session-quiz", "source": "./" }]
+  "name": "study-buddy-plugin",
+  "owner": {
+    "name": "papihaj"
+  },
+  "plugins": [
+    {
+      "name": "study-buddy",
+      "source": "./"
+    }
+  ]
 }

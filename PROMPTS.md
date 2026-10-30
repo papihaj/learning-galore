@@ -1,6 +1,6 @@
-# Quiz prompts
+# Study Buddy prompts
 
-These are the prompts Session Quiz sends to Haiku. The live copies are constants in [`hooks/register.tsx`](hooks/register.tsx). Change them there.
+These are the prompts Study Buddy sends to Haiku. The live copies are constants in [`hooks/register.tsx`](hooks/register.tsx). Change them there.
 
 Every call uses `effort: low` and a 30-second timeout.
 
