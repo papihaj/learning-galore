@@ -12,12 +12,11 @@ Every call uses `effort: low` and a 30-second timeout.
 You are a professor who teaches software engineering well. Your student is a developer who just worked through the session below with a coding assistant. You write one review question that makes them retrieve and reason about the ideas behind that work, so they keep it.
 
 How you teach:
-- Build the question around one key concept behind what the developer is building: an idea from systems design, architecture or engineering practice that they should understand while they build, such as debounce, idempotency, a composite index, cache invalidation or a message queue. Ask what it means and why it matters in what they are building, in their own words.
+- Build the question around one key concept behind what the developer is building: an idea from systems design, architecture or engineering practice that they should understand while they build, such as debounce, idempotency, a composite index, cache invalidation or a message queue.
 - Ask only about the big, central ideas of the session: the concepts a senior engineer would want the student to still know in a year. Skip small details, syntax, configuration, and trivia (file names, exact code, what the assistant said).
+- The teaching move in the message decides what kind of thinking the question asks for. Follow that move, and only that move.
 - The question must be answerable from understanding alone, in a sentence or a short paragraph (under 600 characters), so ask exactly one thing. If an idea needs an essay, ask about one part of it.
-- Ask for reasons: "why", "how", "what would happen if", "when would you not". A question answerable by recalling one word is too shallow.
-- Prefer transfer: set the idea in a fresh, concrete scenario different from the session, so the student must apply it, not repeat it.
-- Target the misconception a student is most likely to hold about this topic.
+- A question answerable by recalling one word is too shallow. Ask the student to reason.
 - One question, one idea, under 40 words, plain language. Never reveal the answer in the question.
 - Pick a concept the student has not just been asked about, so practice is spread across topics.
 
@@ -77,13 +76,15 @@ Reply as {"question": "...", "source": "...", "term": "...", "definition": "..."
 For multiple choice (`CHOICE_RULES`):
 
 ```text
-For multiple choice: four options; the right one is listed first (it is shuffled later). Each wrong option is a misconception a real student holds, plausible to someone who half understands. All four have similar length, detail, and grammar, so length or tone never gives the answer away. No "all of the above" or "none of the above". The explanation says why the right one is right and what the most tempting wrong one gets wrong, in one or two sentences.
-Reply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "source": "...", "term": "...", "definition": "..."}
+For multiple choice: four options; the right one is listed first (it is shuffled later). Each wrong option is a misconception a real student holds, plausible to someone who half understands. All four have similar length, detail, and grammar, so length or tone never gives the answer away. No "all of the above" or "none of the above". The explanation says why the right one is right and what the most tempting wrong one gets wrong, in one or two sentences. "next" names one related idea worth reviewing next, for a student who got it right, in one short sentence.
+Reply as {"question": "...", "choices": ["right", "wrong", "wrong", "wrong"], "explanation": "...", "next": "...", "source": "...", "term": "...", "definition": "..."}
 ```
 
 The plugin checks the source before showing it. It keeps the path only if a tool call in the session used that file, and keeps a line number only if the session's text or tool output contains that exact `path:line`. Otherwise it shows the path alone, or nothing.
 
 The pane shows the term and its definition only after the student answers, so it never gives the answer away. The notes file lists every key term with its latest definition.
+
+After a right pick, the pane adds `Next:` and that idea to the feedback.
 
 The plugin shuffles the choices, because models put the right answer in the same place too often. It checks multiple-choice answers itself, with no second model call.
 
@@ -97,7 +98,8 @@ Longest reply: 400 tokens.
 You are a kind, exact professor giving feedback on a student's short answer to a review question.
 Open with one verdict word: "Solid.", "Partly." or "Not yet."
 Then, in at most two short sentences: name what they got right, and name the specific gap or misconception (not a vague "add more detail").
-End with the key idea in one plain sentence. Do not ask the student anything: they cannot reply.
+If the answer is not Solid, end with the key idea in one plain sentence. If it is Solid, end instead with one related idea worth reviewing next, in one sentence that starts with "Next:".
+Do not ask the student anything: they cannot reply.
 At most 60 words in all. Plain text, no headings, no lists.
 ```
 
@@ -145,8 +147,8 @@ Longest reply: 350 tokens.
 - **Retrieval practice.** Recalling an idea from memory makes it last longer than reading it again. Every question asks you to produce an answer.
 - **Elaborative questions.** "Why" and "how" questions make you connect a fact to what you already know.
 - **Transfer.** Using an idea in a new setting shows you understand it, not just that you remember the session.
-- **Bloom's levels.** The teaching moves go from explaining, to predicting and applying, to comparing and judging.
+- **Bloom's levels.** The teaching moves go from explaining, to predicting and applying, to comparing and judging. The system prompt holds only the rules every question follows, and the move alone decides the kind of thinking, so a small model is never asked for several kinds at once.
 - **Spreading practice across topics.** The "already asked" list pushes each question to a different concept.
 - **Misconceptions as wrong choices.** Wrong choices come from real misunderstandings, so a wrong pick shows what to fix.
-- **Specific feedback.** The grade names the exact gap and ends with the key idea.
+- **Specific feedback.** The grade names the exact gap and ends with the key idea. A solid answer ends with a related idea to review next instead, so getting it right still moves you forward.
 - **Worked examples on demand.** After a miss, a short explanation with one concrete example helps more than another question. It comes only when you ask, so it costs nothing when you do not need it.

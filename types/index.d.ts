@@ -21,6 +21,7 @@ export type Quiz = {
   focus: string
   term: string
   definition: string
+  next: string
 }
 
 export type Note = {

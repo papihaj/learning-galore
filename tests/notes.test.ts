@@ -22,6 +22,7 @@ const QUIZ: Quiz = {
   focus: '',
   term: 'Secret Redaction',
   definition: 'Swapping secrets for a placeholder before text leaves the machine.',
+  next: '',
 }
 
 const note = (over: Partial<Note>): Note => ({
